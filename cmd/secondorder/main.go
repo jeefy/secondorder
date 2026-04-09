@@ -321,6 +321,7 @@ func main() {
 	// Apply org template on first run
 	templateName, defaultModel = promptFirstRun(database, templateName, defaultModel, templateProvided, modelProvided)
 	applyStartupTemplate(database, templateName, defaultModel)
+	logStartupDiagnostics(database)
 
 	// Recover stuck issues from previous run
 	if recovered := sched.RecoverStuckIssues(); recovered > 0 {
@@ -339,7 +340,7 @@ func main() {
 	}
 
 	go func() {
-		slog.Info("secondorder running", "url", "http://localhost:"+port)
+		slog.Info("secondorder running", "url", "http://localhost:"+port, "commit", models.CommitHash)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("http server error", "error", err)
 			os.Exit(1)
@@ -461,6 +462,17 @@ func applyStartupTemplate(database *db.DB, templateName, defaultModel string) {
 		}
 		slog.Info("created agent", "name", a.Name, "slug", a.Slug, "archetype", a.ArchetypeSlug, "model", a.Model)
 	}
+}
+
+func logStartupDiagnostics(database *db.DB) {
+	agents, err := database.ListAgents()
+	if err != nil {
+		slog.Warn("startup diagnostics: failed to load agents", "error", err)
+		return
+	}
+
+	slog.Info("loaded agents", "count", len(agents))
+	slog.Info("startup git commit", "commit", models.CommitHash)
 }
 
 func envOr(key, fallback string) string {

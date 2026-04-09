@@ -10,6 +10,8 @@ builds:
     binary: secondorder
     env:
       - CGO_ENABLED=0
+    ldflags:
+      - -X github.com/msoedov/secondorder/internal/models.CommitHash={{.Commit}}
     goos:
       - linux
       - darwin

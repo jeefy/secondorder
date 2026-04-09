@@ -1,10 +1,12 @@
 BINARY_NAME=secondorder
 BUILD_DIR=.
+COMMIT_HASH=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+LDFLAGS=-ldflags "-X github.com/msoedov/secondorder/internal/models.CommitHash=$(COMMIT_HASH)"
 
 .PHONY: build test run clean lint scan install i
 
 build:
-	go build -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/secondorder
+	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/secondorder
 
 test:
 	go test ./...
