@@ -173,6 +173,7 @@ func (d *DB) WebhookEventExists(deliveryID string) (bool, error) {
 func (d *DB) CreateWebhookEvent(id, source, eventType, deliveryID, payload string) error {
 	d.wmu.Lock()
 	defer d.wmu.Unlock()
+
 	_, err := d.Exec(
 		"INSERT INTO webhook_events (id, source, event_type, delivery_id, payload, status) VALUES (?, ?, ?, ?, ?, 'received')",
 		id, source, eventType, deliveryID, payload,
@@ -184,6 +185,7 @@ func (d *DB) CreateWebhookEvent(id, source, eventType, deliveryID, payload strin
 func (d *DB) UpdateWebhookEventStatus(id, status, errorMsg string) error {
 	d.wmu.Lock()
 	defer d.wmu.Unlock()
+
 	_, err := d.Exec(
 		"UPDATE webhook_events SET status = ?, error_message = ?, processed_at = datetime('now') WHERE id = ?",
 		status, errorMsg, id,
