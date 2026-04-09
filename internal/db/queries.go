@@ -1632,3 +1632,24 @@ func (d *DB) ChildrenWithCompletionComments(parentKey string) ([]ChildCompletion
 	}
 	return results, nil
 }
+
+// --- Webhook Events ---
+
+func (d *DB) CreateWebhookEvent(id, source, eventType, deliveryID, payload string) error {
+	_, err := d.Exec(`INSERT INTO webhook_events (id, source, event_type, delivery_id, payload, status, created_at)
+		VALUES (?, ?, ?, ?, ?, 'received', ?)`,
+		id, source, eventType, deliveryID, payload, time.Now().UTC())
+	return err
+}
+
+func (d *DB) WebhookEventExists(deliveryID string) (bool, error) {
+	var count int
+	err := d.QueryRow(`SELECT COUNT(*) FROM webhook_events WHERE delivery_id = ?`, deliveryID).Scan(&count)
+	return count > 0, err
+}
+
+func (d *DB) UpdateWebhookEventStatus(id, status, errMsg string) error {
+	_, err := d.Exec(`UPDATE webhook_events SET status = ?, error_message = ?, processed_at = ? WHERE id = ?`,
+		status, errMsg, time.Now().UTC(), id)
+	return err
+}
