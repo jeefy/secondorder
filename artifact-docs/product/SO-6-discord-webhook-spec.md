@@ -195,7 +195,46 @@ Discord supports a subset of markdown:
    └─────┘   └─────┘   └─────┘ └──────┘
 ```
 
-### 6.2 Channel Adapter Pattern
+### 6.2 Prior Art: Telegram Integration Reference
+
+SecondOrder already has a working Telegram notification integration (`internal/telegram/bot.go`) that serves as a reference implementation for how bots interact with external services.
+
+**Telegram Bot Pattern:**
+- **Bot Struct:** Encapsulates API token, target chat ID, and HTTP client
+- **Send Methods:** Separate methods per message type (`SendWorkBlockApproval`, `SendMessage`)
+- **Event Handling:** `OnApproval` callback for interactive approvals (buttons in Telegram)
+- **Polling Pattern:** Long-polling for updates using `getUpdates` API with offset tracking
+- **Error Handling:** Basic HTTP status checking; retries at polling level
+
+**Discord Webhook Pattern (Different approach):**
+- **No Bot Struct:** Webhooks don't maintain state or poll for updates
+- **Single Send Method:** Generic POST to webhook URL with rich embeds
+- **No Interactive Responses:** One-way communication (no inline approval buttons)
+- **Async Delivery:** Fire-and-forget POST; no polling/callbacks needed
+- **Error Handling:** Retry logic for rate limits (429) and transient failures
+
+**Key Differences:**
+| Aspect | Telegram | Discord Webhook |
+|--------|----------|-----------------|
+| **Architecture** | Bot with polling | Webhook receiver |
+| **State** | Maintains chat_id, token | Stateless (URL contains token) |
+| **Communication** | Bidirectional (send + poll) | Unidirectional (send only) |
+| **Interactivity** | Inline buttons, callbacks | No interactive elements |
+| **Multiple Destinations** | Single chat_id | Multiple webhooks per workspace |
+| **Config** | 2 values (token, chatID) | Webhook URL + event filters |
+
+**Discord Adapter Will Follow:**
+- Separate Discord adapter struct (similar pattern to Telegram)
+- Template-based message formatting (similar to `SendWorkBlockApproval` approach)
+- Event filtering/selection (Telegram has implicit filtering via buttons; Discord needs explicit config)
+- Retry logic for resilience (Telegram retries at polling level; Discord retries at send level)
+
+**Discord Adapter Will NOT Use:**
+- Polling/long-connections (webhooks are push-based)
+- Interactive buttons (Discord buttons would require a separate bot account)
+- Callbacks (one-way delivery model)
+
+### 6.3 Channel Adapter Pattern
 
 Discord Webhook adapter implements a standard channel interface:
 
@@ -208,104 +247,410 @@ type NotificationChannel {
 ```
 
 **Discord Webhook Implementation:**
-- `deliver()`: POST to webhook URL with formatted message
+- `deliver()`: POST to webhook URL with formatted message, applying event filters
 - `validate()`: Send test message; confirm HTTP 204 response
-- `supports()`: Returns true for "embeds", "mentions", "markdown"
+- `supports()`: Returns true for "embeds", "mentions", "markdown"; false for "interactive_buttons"
 
-### 6.3 Integration Points
+### 6.4 Integration Points
 
 | Point | Requirement |
 |-------|-------------|
-| Configuration storage | Encrypt webhook URL; store workspace_id, channel_name, created_at |
-| Message formatting | Template engine for notification type → discord embed/content |
+| Configuration storage | Store global + per-agent webhook configs; encrypt URLs |
+| Message formatting | Template engine for notification type → discord embed (Section 8) |
+| Event filtering | Check global + per-agent event_filters before sending |
 | Error handling | Treat HTTP 429 as retriable; 404/401 as webhook deleted/invalid |
-| Audit logging | Log all webhook deliveries (success/failure, retry count) |
+| Audit logging | Log all webhook deliveries (success/failure, retry count, event type) |
 | Rate limiting | Implement per-workspace rate limit to respect Discord's 10 req/10s |
 
 ---
 
 ## 7. Configuration Model
 
-### 7.1 Webhook Configuration Schema
+### 7.1 Global vs Per-Agent Configuration
+
+Discord webhook configuration operates at two levels:
+
+#### **Global Configuration (Workspace-level)**
+- Applies to all agents in a workspace
+- Single webhook URL receives notifications from all agents
+- Users can select which event types to receive
+- Managed by workspace admins in Settings > Discord Webhooks
+- Use case: Centralized team notifications channel
+
+```yaml
+GlobalDiscordWebhookConfig:
+  workspace_id: string              # Workspace identifier
+  webhook_url: string               # Encrypted at rest
+  enabled: boolean
+  event_filters:
+    run_started: boolean            # Include run_started events
+    run_completed: boolean          # Include run_completed events
+    comment_added: boolean          # Include comment_added events
+    status_changed: boolean         # Include status_changed events
+    work_block_approved: boolean    # Include work_block_approved events
+    work_block_rejected: boolean    # Include work_block_rejected events
+  created_at: timestamp
+  updated_at: timestamp
+  created_by_user_id: string        # Audit trail
+```
+
+#### **Per-Agent Configuration (Agent-level)**
+- Applies to a specific agent
+- Agent-specific webhook URL (same or different from global)
+- Users can override which events to receive per agent
+- Managed per-agent in Agent Settings > Notifications
+- Use case: Agent-specific channels (e.g., debugging channel for experimental agent)
+
+```yaml
+AgentDiscordWebhookConfig:
+  agent_id: string                  # Agent identifier
+  workspace_id: string              # Parent workspace
+  webhook_url: string               # Optional; if null, inherits global
+  enabled: boolean                  # Agent can override global setting
+  use_global: boolean               # If true, ignore webhook_url and event_filters
+  event_filters:                    # If use_global=false, these override global
+    run_started: boolean
+    run_completed: boolean
+    comment_added: boolean
+    status_changed: boolean
+    work_block_approved: boolean
+    work_block_rejected: boolean
+  created_at: timestamp
+  updated_at: timestamp
+```
+
+**Priority/Inheritance:**
+1. If agent has per-agent config with `use_global=false` → use agent config
+2. If agent has per-agent config with `use_global=true` → use global config
+3. If agent has no per-agent config → use global config
+4. If no global config exists → no notifications sent
+
+### 7.2 Webhook Configuration Schema (Database)
 
 ```yaml
 DiscordWebhookChannel:
-  workspace_id: string          # SecondOrder workspace
-  webhook_id: string            # Discord webhook UUID
-  webhook_url: string           # Full URL (encrypted at rest)
-  channel_name: string          # Human-readable: "general", "alerts"
-  channel_id: string            # Discord channel UUID
-  enabled: boolean              # Can pause without deleting
-  created_at: timestamp         # Audit trail
-  last_validated_at: timestamp  # When URL was last tested
+  id: string                        # Primary key (UUID)
+  workspace_id: string              # SecondOrder workspace
+  agent_id: string                  # NULL for global, set for per-agent
+  webhook_id: string                # Discord webhook UUID
+  webhook_url: string               # Full URL (encrypted at rest)
+  channel_name: string              # Human-readable: "general", "alerts"
+  channel_id: string                # Discord channel UUID
+  enabled: boolean                  # Can pause without deleting
+  use_global: boolean               # For per-agent configs
+  event_filters:                    # JSON object
+    run_started: boolean
+    run_completed: boolean
+    comment_added: boolean
+    status_changed: boolean
+    work_block_approved: boolean
+    work_block_rejected: boolean
+  created_at: timestamp             # Audit trail
+  updated_at: timestamp
+  last_validated_at: timestamp      # When URL was last tested
+  last_validated_status: string     # "success" | "failed" | "unknown"
+  created_by_user_id: string        # Who configured this
   notification_settings:
-    include_timestamp: boolean  # Add timestamp to embeds
-    include_user_mention: boolean  # Mention creator of event
-    include_thread_link: boolean   # Link to discussion thread
+    include_timestamp: boolean      # Add timestamp to embeds
+    include_user_mention: boolean   # Mention creator of event
+    include_thread_link: boolean    # Link to discussion thread
 ```
 
-### 7.2 User-facing Configuration
+### 7.3 User-facing Configuration Flows
 
-**Setup flow:**
-1. User: "Add Discord notifications"
-2. System: Shows instructions to create webhook in Discord
-3. User: Copies webhook URL from Discord
-4. System: Paste URL → validate → confirm
+**Setup Global Webhook (Workspace Admin):**
+1. Navigate to Settings > Notifications > Discord
+2. Click "Add Discord Webhook"
+3. Paste webhook URL from Discord
+4. System validates webhook with test message
+5. Select events to receive:
+   - ☐ Run Started
+   - ☐ Run Completed
+   - ☐ Comment Added
+   - ☐ Status Changed
+   - ☐ Work Block Approved
+   - ☐ Work Block Rejected
+6. Click "Save and Test"
+7. Success confirmation or error handling
 
-**Management:**
-- List connected Discord channels
+**Setup Per-Agent Override (Agent Owner):**
+1. Navigate to Agent Settings > Notifications
+2. Toggle "Use custom Discord webhook" (default: use global)
+3. Optionally paste different webhook URL
+4. Optionally override event filters
+5. Click "Save"
+
+**Management (both levels):**
+- List configured webhooks (global + per-agent)
 - Test delivery (send sample message)
-- Pause/resume channel
+- Enable/disable without deleting
 - Rotate webhook (delete and re-add)
-- Delete channel
+- Edit event filters
+- Delete webhook configuration
 
 ---
 
-## 8. Message Templates
+## 8. SecondOrder Event Definitions and Triggers
 
-### 8.1 Template Structure
+### 8.1 Event Triggering Table
 
-Templates define how each notification type maps to Discord format.
+The following SecondOrder events trigger Discord webhook notifications. Users can select which events they want to receive:
 
-**Example: Task Assignment Notification**
+| Event | Description | Trigger Condition | User Benefit |
+|-------|-------------|-------------------|--------------|
+| **run_started** | Agent run begins execution | Run transitions to RUNNING state | Track when agents start working |
+| **run_completed** | Agent run finishes (success/failure) | Run transitions to DONE, FAILED, or CANCELLED state | Monitor run outcomes and status |
+| **comment_added** | Comment posted on issue/work block | New comment created by any user | Stay informed of team discussion |
+| **status_changed** | Issue or work block status changes | Status field modified | Track progress and blockers |
+| **work_block_approved** | Work block marked ready for approval | Work block transitions to APPROVED state | Confirm go-ahead decisions |
+| **work_block_rejected** | Work block marked for revision | Work block transitions to REJECTED state | Alert to rework needs |
 
-```yaml
-templates:
-  task_assigned:
-    title: "New Task Assigned"
-    description_format: "{{assigner}} assigned {{task_title}} to you"
-    embed_color: 3066993  # Blue
-    fields:
-      - name: "Task"
-        value: "{{task_title}}"
-        inline: false
-      - name: "Priority"
-        value: "{{priority}}"
-        inline: true
-      - name: "Due Date"
-        value: "{{due_date}}"
-        inline: true
-    include_task_link: true
-    mention_assignee: true
+### 8.2 Message Format Per Event Type
+
+Each event type has a dedicated embed template for Discord:
+
+#### **run_started**
+```json
+{
+  "username": "SecondOrder Bot",
+  "embeds": [{
+    "title": "🚀 Agent Run Started",
+    "description": "Run #{{run_id}} started by {{initiator_name}}",
+    "color": 3447003,
+    "fields": [
+      {
+        "name": "Agent",
+        "value": "{{agent_name}}",
+        "inline": true
+      },
+      {
+        "name": "Workspace",
+        "value": "{{workspace_name}}",
+        "inline": true
+      },
+      {
+        "name": "Goal",
+        "value": "{{goal}}",
+        "inline": false
+      }
+    ],
+    "timestamp": "{{created_at}}"
+  }]
+}
 ```
 
-### 8.2 Standard Embed Fields
+**Color:** 3447003 (Blue)
 
-Every notification template should support:
-- **Title**: Short description
+---
+
+#### **run_completed**
+```json
+{
+  "username": "SecondOrder Bot",
+  "embeds": [{
+    "title": "✅ Agent Run Completed",
+    "description": "Run #{{run_id}} finished with status {{status}}",
+    "color": "{{status == 'DONE' ? 3066993 : 15158332}}",
+    "fields": [
+      {
+        "name": "Agent",
+        "value": "{{agent_name}}",
+        "inline": true
+      },
+      {
+        "name": "Status",
+        "value": "{{status == 'DONE' ? '✅ Success' : '❌ Failed'}}",
+        "inline": true
+      },
+      {
+        "name": "Duration",
+        "value": "{{duration_seconds}}s",
+        "inline": true
+      },
+      {
+        "name": "Summary",
+        "value": "{{summary}}",
+        "inline": false
+      }
+    ],
+    "timestamp": "{{completed_at}}"
+  }]
+}
+```
+
+**Color:** 3066993 (Green) for success, 15158332 (Red) for failure
+
+---
+
+#### **comment_added**
+```json
+{
+  "username": "SecondOrder Bot",
+  "embeds": [{
+    "title": "💬 New Comment",
+    "description": "{{author_name}} commented on {{target_title}}",
+    "color": 9807270,
+    "fields": [
+      {
+        "name": "Author",
+        "value": "{{author_name}}",
+        "inline": true
+      },
+      {
+        "name": "Target",
+        "value": "{{target_type}}: {{target_title}}",
+        "inline": true
+      },
+      {
+        "name": "Comment",
+        "value": "{{comment_preview}}",
+        "inline": false
+      }
+    ],
+    "timestamp": "{{created_at}}"
+  }]
+}
+```
+
+**Color:** 9807270 (Purple)
+
+---
+
+#### **status_changed**
+```json
+{
+  "username": "SecondOrder Bot",
+  "embeds": [{
+    "title": "📋 Status Changed",
+    "description": "{{item_title}} status updated",
+    "color": 16776960,
+    "fields": [
+      {
+        "name": "Item",
+        "value": "{{item_type}}: {{item_title}}",
+        "inline": true
+      },
+      {
+        "name": "Changed By",
+        "value": "{{changed_by_name}}",
+        "inline": true
+      },
+      {
+        "name": "Old Status",
+        "value": "{{old_status}}",
+        "inline": true
+      },
+      {
+        "name": "New Status",
+        "value": "{{new_status}}",
+        "inline": true
+      }
+    ],
+    "timestamp": "{{changed_at}}"
+  }]
+}
+```
+
+**Color:** 16776960 (Yellow)
+
+---
+
+#### **work_block_approved**
+```json
+{
+  "username": "SecondOrder Bot",
+  "embeds": [{
+    "title": "✅ Work Block Approved",
+    "description": "{{block_title}} has been approved",
+    "color": 3066993,
+    "fields": [
+      {
+        "name": "Work Block",
+        "value": "{{block_title}}",
+        "inline": true
+      },
+      {
+        "name": "Approved By",
+        "value": "{{approver_name}}",
+        "inline": true
+      },
+      {
+        "name": "Goal",
+        "value": "{{goal}}",
+        "inline": false
+      },
+      {
+        "name": "Next Step",
+        "value": "Ready for {{transition_target}}",
+        "inline": false
+      }
+    ],
+    "timestamp": "{{approved_at}}"
+  }]
+}
+```
+
+**Color:** 3066993 (Green)
+
+---
+
+#### **work_block_rejected**
+```json
+{
+  "username": "SecondOrder Bot",
+  "embeds": [{
+    "title": "❌ Work Block Rejected",
+    "description": "{{block_title}} needs revision",
+    "color": 15158332,
+    "fields": [
+      {
+        "name": "Work Block",
+        "value": "{{block_title}}",
+        "inline": true
+      },
+      {
+        "name": "Rejected By",
+        "value": "{{rejector_name}}",
+        "inline": true
+      },
+      {
+        "name": "Goal",
+        "value": "{{goal}}",
+        "inline": false
+      },
+      {
+        "name": "Feedback",
+        "value": "{{feedback}}",
+        "inline": false
+      }
+    ],
+    "timestamp": "{{rejected_at}}"
+  }]
+}
+```
+
+**Color:** 15158332 (Red)
+
+---
+
+### 8.3 Standard Embed Fields
+
+Every notification template supports:
+- **Title**: Short description with emoji indicator
 - **Description**: Main message content
-- **Color**: Status indicator (green=success, red=error, blue=info)
-- **Timestamp**: When event occurred
+- **Color**: Event-specific status indicator (green=success, red=failure, blue=info, yellow=change, purple=comment)
+- **Timestamp**: When event occurred (ISO 8601)
 - **Footer**: Source (e.g., "SecondOrder • workspace-name")
+- **Fields**: Structured key-value pairs for additional context
 
-### 8.3 Content Constraints
+### 8.4 Content Constraints
 
 | Content Type | Max Length | Handling |
 |--------------|-----------|----------|
 | Title | 256 chars | Truncate with … |
 | Description | 2048 chars | Truncate with link to full details |
-| Field value | 1024 chars per field | Split across multiple fields if needed |
-| Embed count | 10 per message | Use max 1-2 for clarity |
+| Field value | 1024 chars per field | Truncate with … if needed |
+| Embed count | 10 per message | Use exactly 1 per event in MVP |
 
 ---
 
