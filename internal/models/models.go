@@ -78,13 +78,25 @@ var RunnerModels = map[string][]string{
 		"o4-mini",
 	},
 	RunnerCopilot: {
+		// Claude models (verified against api.githubcopilot.com/models 2026-04-09)
 		"claude-sonnet-4.6",
 		"claude-opus-4.6",
 		"claude-haiku-4.5",
+		"claude-sonnet-4.5",
+		"claude-sonnet-4",
+		"claude-opus-4.5",
+		// GPT models
 		"gpt-5.4",
+		"gpt-5.3-codex",
+		"gpt-5.2",
+		"gpt-5.2-codex",
 		"gpt-5.1",
 		"gpt-5-mini",
+		"gpt-4o",
+		"gpt-4.1",
+		// Other models
 		"gemini-2.5-pro",
+		"grok-code-fast-1",
 	},
 	RunnerOpenCode: {},
 	RunnerOllama:   {},
