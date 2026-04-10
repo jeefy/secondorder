@@ -636,6 +636,7 @@ func (d *DB) ListWikiPageSummaries() ([]models.WikiPageSummary, error) {
 	}
 	return pages, rows.Err()
 }
+
 func (d *DB) UpdateWikiPage(p *models.WikiPage) error {
 	p.UpdatedAt = time.Now().UTC()
 	_, err := d.Exec(`UPDATE wiki_pages SET slug=?, title=?, content=?, updated_by_agent_id=?, updated_at=? WHERE id=?`,
