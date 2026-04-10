@@ -707,9 +707,9 @@ func (a *API) SearchWikiPages(w http.ResponseWriter, r *http.Request) {
 
 	type scored struct {
 		models.WikiPage
-		Score    int      `json:"score"`
-		Matches  []string `json:"matches"` // which fields matched
-		Positions []int   `json:"positions,omitempty"`
+		Score     int      `json:"score"`
+		Matches   []string `json:"matches"` // which fields matched
+		Positions []int    `json:"positions,omitempty"`
 	}
 
 	var results []scored

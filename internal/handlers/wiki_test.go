@@ -611,7 +611,7 @@ func TestSearchWikiPages(t *testing.T) {
 	}{
 		{"api", 1, "api-key-rotation"},
 		{"sec", 1, "security-model"},
-		{"de", 2, ""},    // matches deployment + security-model (model has no 'de'... actually deployment-guide)
+		{"de", 2, ""}, // matches deployment + security-model (model has no 'de'... actually deployment-guide)
 		{"zzz", 0, ""},
 	}
 
