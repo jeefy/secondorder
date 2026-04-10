@@ -218,7 +218,6 @@ type WikiPageSummary struct {
 	Title     string    `json:"title"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
-
 type Approval struct {
 	ID          string     `json:"id"`
 	IssueKey    string     `json:"issue_key"`
