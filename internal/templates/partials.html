@@ -48,6 +48,7 @@
     (function(){var t=localStorage.getItem('so-theme')||'dark';if(t==='dark')document.documentElement.classList.add('dark');})();
     </script>
     <script>
+    const RUNNER_MODELS = {{runnerModelsJSON}};
     function updateModels(runnerSelectId, modelSelectId) {
         const runnerEl = document.getElementById(runnerSelectId);
         if (!runnerEl) return;
@@ -66,63 +67,7 @@
             modelSelect.appendChild(defaultOpt);
         }
 
-        let models = [];
-        if (runner === 'claude_code') {
-
-            models = [
-                {val: 'sonnet', label: 'Sonnet'},
-                {val: 'opus', label: 'Opus'},
-                {val: 'haiku', label: 'Haiku'}
-            ];
-        } else if (runner === 'codex') {
-            models = [
-                {val: 'default', label: 'Default'},
-                {val: 'gpt-5.4-thinking', label: 'GPT-5.4 Thinking'},
-                {val: 'gpt-5.4-pro', label: 'GPT-5.4 Pro'},
-                {val: 'gpt-5.4-instant', label: 'GPT-5.4 Instant'},
-                {val: 'gpt-4o', label: 'GPT-4o'},
-                {val: 'o4-mini', label: 'o4-mini'}
-            ];
-        } else if (runner === 'gemini') {
-            models = [
-                {val: 'default', label: 'Default'},
-                {val: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro'},
-                {val: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite'},
-                {val: 'gemini-3.1-flash-live', label: 'Gemini 3.1 Flash-Live'},
-                {val: 'gemini-3-deep-think', label: 'Gemini 3 Deep Think'},
-                {val: 'gemini-3-flash', label: 'Gemini 3 Flash'},
-                {val: 'gemini-3-flash-preview', label: 'Gemini 3 Flash (Preview)'},
-                {val: 'gemini-3-pro', label: 'Gemini 3 Pro'},
-                {val: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash'},
-                {val: 'gemini-2.0-flash-lite', label: 'Gemini 2.0 Flash Lite'},
-                {val: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro'},
-                {val: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash'}
-            ];
-        } else if (runner === 'copilot') {
-            models = [
-                {val: 'claude-sonnet-4.6', label: 'Claude Sonnet 4.6'},
-                {val: 'claude-opus-4.6', label: 'Claude Opus 4.6'},
-                {val: 'claude-haiku-4.5', label: 'Claude Haiku 4.5'},
-                {val: 'gpt-5.4', label: 'GPT-5.4'},
-                {val: 'gpt-5.1', label: 'GPT-5.1'},
-                {val: 'gpt-5-mini', label: 'GPT-5 Mini'},
-                {val: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro'}
-            ];
-        } else if (runner === 'opencode') {
-            models = [
-                {val: 'github-copilot/claude-opus-4.6', label: 'github-copilot / claude-opus-4.6'},
-                {val: 'github-copilot/claude-sonnet-4.5', label: 'github-copilot / claude-sonnet-4.5'},
-                {val: 'github-copilot/gpt-5.4', label: 'github-copilot / gpt-5.4'},
-                {val: 'anthropic/claude-sonnet-4-5', label: 'anthropic / claude-sonnet-4-5'},
-                {val: 'anthropic/claude-opus-4', label: 'anthropic / claude-opus-4'},
-                {val: 'openai/gpt-4o', label: 'openai / gpt-4o'},
-                {val: 'google/gemini-2.5-pro', label: 'google / gemini-2.5-pro'},
-                {val: 'openrouter/auto', label: 'openrouter / auto'}
-            ];
-        } else if (runner === 'ollama') {
-            models = {{ollamaModelsJSON}};
-        }
-
+        const models = RUNNER_MODELS[runner] || [];
         models.forEach(m => {
             const opt = document.createElement('option');
             opt.value = m.val;

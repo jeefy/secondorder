@@ -96,7 +96,7 @@ var funcMap = template.FuncMap{
 		return s
 	},
 	"seq":              seq,
-	"ollamaModelsJSON": ollamaModelsJSON,
+	"runnerModelsJSON": runnerModelsJSON,
 	"add": func(a, b any) int {
 		var av, bv int64
 		switch v := a.(type) {
@@ -695,17 +695,19 @@ func seq(n int) []int {
 	return s
 }
 
-func ollamaModelsJSON() template.JS {
+func runnerModelsJSON() template.JS {
 	type entry struct {
 		Val   string `json:"val"`
 		Label string `json:"label"`
 	}
-	var entries []entry
-	if m, ok := models.RunnerModels[models.RunnerOllama]; ok {
-		for _, name := range m {
+	result := make(map[string][]entry)
+	for runner, modelList := range models.RunnerModels {
+		entries := make([]entry, 0, len(modelList))
+		for _, name := range modelList {
 			entries = append(entries, entry{Val: name, Label: name})
 		}
+		result[runner] = entries
 	}
-	data, _ := json.Marshal(entries)
+	data, _ := json.Marshal(result)
 	return template.JS(data)
 }
