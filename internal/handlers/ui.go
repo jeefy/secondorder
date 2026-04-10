@@ -20,6 +20,7 @@ import (
 	"github.com/msoedov/secondorder/internal/archetypes"
 	"github.com/msoedov/secondorder/internal/db"
 	"github.com/msoedov/secondorder/internal/models"
+	"github.com/msoedov/secondorder/internal/scheduler"
 	acvalidator "github.com/msoedov/secondorder/internal/validator"
 )
 
@@ -1469,14 +1470,20 @@ func (u *UI) Settings(w http.ResponseWriter, r *http.Request) {
 		gitHubURL = "https://github.com/msoedov/secondorder"
 	}
 
+	var ollamaInstances []models.OllamaInstance
+	if raw := settings["ollama_instances"]; raw != "" {
+		json.Unmarshal([]byte(raw), &ollamaInstances)
+	}
+
 	u.render(w, "settings", map[string]any{
-		"Settings":      settings,
-		"Version":       version,
-		"GoVersion":     goVersion,
-		"SQLiteVersion": sqliteVersion,
-		"GitHubURL":     gitHubURL,
-		"Flash":         r.URL.Query().Get("msg"),
-		"Error":         r.URL.Query().Get("error"),
+		"Settings":        settings,
+		"OllamaInstances": ollamaInstances,
+		"Version":         version,
+		"GoVersion":       goVersion,
+		"SQLiteVersion":   sqliteVersion,
+		"GitHubURL":       gitHubURL,
+		"Flash":           r.URL.Query().Get("msg"),
+		"Error":           r.URL.Query().Get("error"),
 	})
 }
 
@@ -1501,6 +1508,35 @@ func (u *UI) saveSettings(w http.ResponseWriter, r *http.Request) {
 			u.db.SetSetting(flag, val)
 		}
 		http.Redirect(w, r, "/settings?msg=Feature+flags+saved", http.StatusSeeOther)
+		return
+	case "ollama":
+		urls := r.Form["ollama_url"]
+		parallels := r.Form["ollama_parallel"]
+		var instances []models.OllamaInstance
+		for i, rawURL := range urls {
+			rawURL = strings.TrimSpace(rawURL)
+			if rawURL == "" {
+				continue
+			}
+			if !strings.HasPrefix(rawURL, "http") {
+				rawURL = "http://" + rawURL
+			}
+			maxP := 1
+			if i < len(parallels) {
+				if v, err := strconv.Atoi(strings.TrimSpace(parallels[i])); err == nil && v > 0 {
+					maxP = v
+				}
+			}
+			instances = append(instances, models.OllamaInstance{URL: rawURL, MaxParallel: maxP})
+		}
+		data, _ := json.Marshal(instances)
+		if err := u.db.SetSetting("ollama_instances", string(data)); err != nil {
+			http.Redirect(w, r, "/settings?error=Failed+to+save+Ollama+settings", http.StatusSeeOther)
+			return
+		}
+		scheduler.SetOllamaInstances(instances)
+		models.DiscoverOllamaModels(instances)
+		http.Redirect(w, r, "/settings?msg=Ollama+settings+saved.+Models+refreshed.", http.StatusSeeOther)
 		return
 	default:
 		http.Redirect(w, r, "/settings?error=Unknown+section", http.StatusSeeOther)

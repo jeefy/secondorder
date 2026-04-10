@@ -248,6 +248,8 @@ func (s *Scheduler) spawnAgent(agent *models.Agent, issueKey, mode, prompt strin
 			stdout, err = s.execCopilot(ctx, agent, rawKey, runID, issueKey, prompt)
 		case "opencode":
 			stdout, err = s.execOpenCode(ctx, agent, rawKey, runID, issueKey, prompt)
+		case "ollama":
+			stdout, err = s.execOllama(ctx, agent, rawKey, runID, issueKey, prompt)
 		default:
 			err = fmt.Errorf("unsupported runner: %s", runner)
 		}
@@ -283,7 +285,7 @@ func (s *Scheduler) spawnAgent(agent *models.Agent, issueKey, mode, prompt strin
 
 		// Parse token usage from stream-json output
 		tokens := parseTokenUsage(stdout)
-		if agent.Runner != "claude_code" && agent.Runner != "gemini" && agent.Runner != "codex" && agent.Runner != "opencode" && agent.Runner != "" {
+		if agent.Runner != "claude_code" && agent.Runner != "gemini" && agent.Runner != "codex" && agent.Runner != "opencode" && agent.Runner != "ollama" && agent.Runner != "" {
 			tokens = tokenUsage{}
 		}
 
