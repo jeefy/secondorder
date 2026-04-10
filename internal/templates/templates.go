@@ -2,6 +2,7 @@ package templates
 
 import (
 	"embed"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"math"
@@ -85,7 +86,8 @@ var funcMap = template.FuncMap{
 		}
 		return s
 	},
-	"seq": seq,
+	"seq":              seq,
+	"ollamaModelsJSON": ollamaModelsJSON,
 	"add": func(a, b any) int {
 		var av, bv int64
 		switch v := a.(type) {
@@ -682,4 +684,19 @@ func seq(n int) []int {
 		s[i] = i
 	}
 	return s
+}
+
+func ollamaModelsJSON() template.JS {
+	type entry struct {
+		Val   string `json:"val"`
+		Label string `json:"label"`
+	}
+	var entries []entry
+	if m, ok := models.RunnerModels[models.RunnerOllama]; ok {
+		for _, name := range m {
+			entries = append(entries, entry{Val: name, Label: name})
+		}
+	}
+	data, _ := json.Marshal(entries)
+	return template.JS(data)
 }

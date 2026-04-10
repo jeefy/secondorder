@@ -112,6 +112,37 @@
       </div>
     </form>
 
+    <!-- Ollama Instances -->
+    <form method="POST" action="/settings" class="mb-6">
+      <input type="hidden" name="section" value="ollama">
+      <div class="bg-card border border-bd rounded-lg p-5">
+        <h2 class="text-sm font-medium text-ink mb-4">Ollama Instances</h2>
+        <p class="text-[11px] text-ink3/40 mb-4">Configure Ollama server instances. Models are auto-discovered from each instance. You can also set OLLAMA_HOSTS env var as a comma-separated fallback.</p>
+        <div id="ollama-instances" class="space-y-3">
+          {{range .OllamaInstances}}
+          <div class="flex items-center gap-3 ollama-row">
+            <input name="ollama_url" type="text" value="{{.URL}}" placeholder="http://localhost:11434" class="flex-1 bg-sf border border-bd rounded-md px-3 py-2 text-sm text-ink placeholder-ink3/30 outline-none focus:ring-1 focus:ring-ac font-mono">
+            <input name="ollama_parallel" type="number" value="{{.MaxParallel}}" min="1" max="32" class="w-24 bg-sf border border-bd rounded-md px-3 py-2 text-sm text-ink outline-none focus:ring-1 focus:ring-ac text-center" title="Max parallel requests">
+            <button type="button" onclick="this.closest('.ollama-row').remove()" class="text-red-400 hover:text-red-300 text-sm px-2">&#x2715;</button>
+          </div>
+          {{end}}
+        </div>
+        <button type="button" onclick="addOllamaRow()" class="mt-3 text-[12px] text-ac-t hover:text-ac transition-colors">+ Add Instance</button>
+        <div class="mt-4 flex justify-end">
+          <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium bg-ac text-ink hover:bg-ac-h active:scale-[0.97] transition-all">Save &amp; Refresh Models</button>
+        </div>
+      </div>
+    </form>
+    <script>
+    function addOllamaRow() {
+      var c = document.getElementById('ollama-instances');
+      var d = document.createElement('div');
+      d.className = 'flex items-center gap-3 ollama-row';
+      d.innerHTML = '<input name="ollama_url" type="text" placeholder="http://localhost:11434" class="flex-1 bg-sf border border-bd rounded-md px-3 py-2 text-sm text-ink placeholder-ink3/30 outline-none focus:ring-1 focus:ring-ac font-mono"><input name="ollama_parallel" type="number" value="1" min="1" max="32" class="w-24 bg-sf border border-bd rounded-md px-3 py-2 text-sm text-ink outline-none focus:ring-1 focus:ring-ac text-center" title="Max parallel requests"><button type="button" onclick="this.closest(\'.ollama-row\').remove()" class="text-red-400 hover:text-red-300 text-sm px-2">&#x2715;</button>';
+      c.appendChild(d);
+    }
+    </script>
+
     <!-- Appearance -->
     <div class="bg-card border border-bd rounded-lg p-5 mb-6">
       <h2 class="text-sm font-medium text-ink mb-4">Appearance</h2>

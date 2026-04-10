@@ -1,7 +1,11 @@
 package models
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"os/exec"
 	"strings"
 	"time"
@@ -41,6 +45,7 @@ const (
 	RunnerCodex            = "codex"
 	RunnerCopilot          = "copilot"
 	RunnerOpenCode         = "opencode"
+	RunnerOllama           = "ollama"
 	DefaultAgentTimeoutSec = 1200
 )
 
@@ -82,6 +87,7 @@ var RunnerModels = map[string][]string{
 		"gemini-2.5-pro",
 	},
 	RunnerOpenCode: {},
+	RunnerOllama:   {},
 }
 
 func IsValidModelForRunner(runner, model string) bool {
@@ -114,6 +120,66 @@ func DiscoverOpenCodeModels() {
 		RunnerModels[RunnerOpenCode] = discovered
 		slog.Info("discovered opencode models", "count", len(discovered))
 	}
+}
+
+// OllamaInstance represents a configured Ollama server instance.
+type OllamaInstance struct {
+	URL         string `json:"url"`
+	MaxParallel int    `json:"max_parallel"`
+}
+
+// DiscoverOllamaModels queries each Ollama instance for available models
+// and populates RunnerModels["ollama"] with entries in the format "model@host:port".
+func DiscoverOllamaModels(instances []OllamaInstance) {
+	var discovered []string
+	client := &http.Client{Timeout: 5 * time.Second}
+	for _, inst := range instances {
+		url := strings.TrimRight(inst.URL, "/") + "/api/tags"
+		resp, err := client.Get(url)
+		if err != nil {
+			slog.Warn("ollama model discovery failed", "url", inst.URL, "error", err)
+			continue
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			slog.Warn("ollama model discovery: read body failed", "url", inst.URL, "error", err)
+			continue
+		}
+		if resp.StatusCode != 200 {
+			slog.Warn("ollama model discovery: bad status", "url", inst.URL, "status", resp.StatusCode)
+			continue
+		}
+		var tagsResp struct {
+			Models []struct {
+				Name string `json:"name"`
+			} `json:"models"`
+		}
+		if err := json.Unmarshal(body, &tagsResp); err != nil {
+			slog.Warn("ollama model discovery: parse failed", "url", inst.URL, "error", err)
+			continue
+		}
+		hostPort := extractHostPort(inst.URL)
+		for _, m := range tagsResp.Models {
+			discovered = append(discovered, fmt.Sprintf("%s@%s", m.Name, hostPort))
+		}
+		slog.Info("discovered ollama models", "url", inst.URL, "count", len(tagsResp.Models))
+	}
+	if len(discovered) > 0 {
+		RunnerModels[RunnerOllama] = discovered
+	}
+}
+
+// extractHostPort returns "host:port" from a URL like "http://localhost:11434".
+func extractHostPort(rawURL string) string {
+	u := rawURL
+	if idx := strings.Index(u, "://"); idx >= 0 {
+		u = u[idx+3:]
+	}
+	if idx := strings.Index(u, "/"); idx >= 0 {
+		u = u[:idx]
+	}
+	return u
 }
 
 // WorkBlock statuses

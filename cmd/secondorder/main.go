@@ -117,6 +117,12 @@ func main() {
 
 	models.DiscoverOpenCodeModels()
 
+	ollamaInstances := loadOllamaInstances(database)
+	if len(ollamaInstances) > 0 {
+		models.DiscoverOllamaModels(ollamaInstances)
+		scheduler.SetOllamaInstances(ollamaInstances)
+	}
+
 	// SSE hub
 	sse := handlers.NewSSEHub()
 
@@ -384,6 +390,8 @@ func resolveRunner(model string) string {
 		return "copilot"
 	case "opencode":
 		return "opencode"
+	case "ollama":
+		return "ollama"
 	case "gemini", "codex":
 		return model
 	default:
@@ -559,6 +567,7 @@ func promptFirstRun(database *db.DB, templateName, defaultModel string, template
 		fmt.Println("  2. gemini    - Google Gemini")
 		fmt.Println("  3. codex     - OpenAI Codex")
 		fmt.Println("  4. opencode  - OpenCode")
+		fmt.Println("  5. ollama    - Ollama (local models)")
 
 		prompt := func() string {
 			fmt.Print("\nEnter choice [1]: ")
@@ -576,6 +585,8 @@ func promptFirstRun(database *db.DB, templateName, defaultModel string, template
 				return "codex"
 			case "4", "opencode":
 				return "opencode"
+			case "5", "ollama":
+				return "ollama"
 			default:
 				return ""
 			}
@@ -594,4 +605,33 @@ func promptFirstRun(database *db.DB, templateName, defaultModel string, template
 
 	fmt.Printf("\nStarting with template=%s runner=%s\n\n", templateName, defaultModel)
 	return templateName, defaultModel
+}
+
+func loadOllamaInstances(database *db.DB) []models.OllamaInstance {
+	var instances []models.OllamaInstance
+
+	if raw, _ := database.GetSetting("ollama_instances"); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &instances); err != nil {
+			slog.Warn("failed to parse ollama_instances setting", "error", err)
+		}
+	}
+
+	if hosts := os.Getenv("OLLAMA_HOSTS"); hosts != "" {
+		seen := make(map[string]bool)
+		for _, inst := range instances {
+			seen[inst.URL] = true
+		}
+		for _, h := range strings.Split(hosts, ",") {
+			h = strings.TrimSpace(h)
+			if h == "" || seen[h] {
+				continue
+			}
+			if !strings.HasPrefix(h, "http") {
+				h = "http://" + h
+			}
+			instances = append(instances, models.OllamaInstance{URL: h, MaxParallel: 1})
+		}
+	}
+
+	return instances
 }
