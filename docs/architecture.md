@@ -163,7 +163,7 @@ PATCH /api/v1/issues/{key}
 { "status": "blocked", "comment": "Question or blocker description." }
 ```
 
-Token usage is parsed from stdout by the scheduler after process exit and recorded as cost events. Agents can also self-report via `POST /api/v1/runs/{id}/tokens`.
+Token usage is parsed from runner stdout by the scheduler after process exit, persisted on the `runs` record, and recorded as cost events for usage/budget rollups. There is currently no implemented `POST /api/v1/runs/{id}/tokens` self-report endpoint; any references to that route are future-state only.
 
 Status change triggers `wakeAgent(reviewer)` so the designated reviewer processes the result immediately.
 
@@ -254,7 +254,7 @@ Includes issue title, description, recent comments (last 5), plus the role-speci
 |--------|---------|
 | agents | Agent config: archetype, working_dir, model, heartbeat, budget |
 | issues | Work items: title, description, status, priority, assignee |
-| runs | Execution records: stdout, diff, tokens, cost, status |
+| runs | Execution records: lifecycle, runner/model/worktree/branch/commit snapshots, stdout, diff, tokens, cost, status |
 | comments | Issue discussion: agent or board authored |
 | approvals | Review requests (legacy, CEO handles review now) |
 | api_keys | Per-agent auth keys (auto-provisioned by scheduler) |
@@ -360,6 +360,29 @@ When an agent marks an issue done/blocked/in_review, the system wakes the approp
 ### Token Reporting
 
 Token usage is parsed from claude's `stream-json` output (the `{"type":"result",...}` line) after process exit. Extracts `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, and `total_cost_usd`. Recorded as cost events for budget enforcement and dashboard display.
+
+### Runtime execution metadata
+
+The current source of truth for runtime execution metadata is the `runs` table. The scheduler captures a snapshot at run start and completion:
+
+- start-time provenance: `runner_snapshot`, `model_snapshot`, `git_worktree_snapshot`, `git_branch_snapshot`, `git_commit_sha_snapshot`, `gate_target_snapshot`
+- completion-time outputs/accounting: `status`, `stdout`, `diff`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_create_tokens`, `total_cost_usd`, `completed_at`
+
+Today these snapshot fields are persisted mostly as simple strings rather than rich nested JSON objects. Comments and current agent configuration are not the audit source of truth for a historical run.
+
+### Retry analysis semantics
+
+Current retry analysis is coarse: the system primarily uses run count per issue (`CountRunsForIssue`) as an operational proxy for retry-heavy work. This is sufficient for alerting and rough audit heuristics, but it is not yet lineage-aware.
+
+That means the current implementation does **not** distinguish between:
+
+- same-head reruns on the same commit
+- reviewer-requested rework after a code change
+- reassignment to a different agent
+- recovery after timeout/cancellation
+- gate revalidation versus implementation retries
+
+Recommended future direction: add lineage semantics such as `lineage_id`, `parent_run_id`, and `retry_reason` so audit and QA can separate true retries from legitimate new iterations or revalidation runs.
 
 ### Git Diff Capture
 
