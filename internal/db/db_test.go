@@ -1948,3 +1948,229 @@ func TestCreateRunSnapshotFieldsNullableForLegacyRuns(t *testing.T) {
 		t.Errorf("gate_target_snapshot = %q, want nil", *got.GateTarget)
 	}
 }
+
+// SO-98 QA: canonical deployment gate coverage — additional regression tests
+
+// TestDeploymentGateDoneStatusYieldsPassed verifies that when a deployment issue
+// is marked done, the canonical gate status transitions to "passed" and unblock
+// state is "unblocked".
+func TestDeploymentGateDoneStatusYieldsPassed(t *testing.T) {
+	d := testDB(t)
+	i := makeIssue("SO-710")
+	i.Type = models.TypeDeploy
+	i.Status = models.StatusTodo
+	if err := d.CreateIssue(i); err != nil {
+		t.Fatalf("create deployment issue: %v", err)
+	}
+
+	if err := d.AppendDeploymentGateStatus(i.Key, i.Type, models.StatusDone, "", "completed"); err != nil {
+		t.Fatalf("append done status: %v", err)
+	}
+
+	gate, err := d.GetDeploymentGateByIssueKey(i.Key)
+	if err != nil {
+		t.Fatalf("get gate: %v", err)
+	}
+	if gate.Status != models.GateStatusPassed {
+		t.Fatalf("gate status = %q, want %q", gate.Status, models.GateStatusPassed)
+	}
+	if gate.UnblockState != models.UnblockStateUnblocked {
+		t.Fatalf("gate unblock_state = %q, want %q", gate.UnblockState, models.UnblockStateUnblocked)
+	}
+}
+
+// TestDeploymentGateCancelledStatusYieldsClosed verifies that cancelled issue
+// status maps to gate status "closed" with unblock state "unknown".
+func TestDeploymentGateCancelledStatusYieldsClosed(t *testing.T) {
+	d := testDB(t)
+	i := makeIssue("SO-711")
+	i.Type = models.TypeDeploy
+	i.Status = models.StatusTodo
+	if err := d.CreateIssue(i); err != nil {
+		t.Fatalf("create deployment issue: %v", err)
+	}
+
+	if err := d.AppendDeploymentGateStatus(i.Key, i.Type, models.StatusCancelled, "", "cancelled"); err != nil {
+		t.Fatalf("append cancelled status: %v", err)
+	}
+
+	gate, err := d.GetDeploymentGateByIssueKey(i.Key)
+	if err != nil {
+		t.Fatalf("get gate: %v", err)
+	}
+	if gate.Status != models.GateStatusClosed {
+		t.Fatalf("gate status = %q, want %q", gate.Status, models.GateStatusClosed)
+	}
+	if gate.UnblockState != models.UnblockStateUnknown {
+		t.Fatalf("gate unblock_state = %q, want %q", gate.UnblockState, models.UnblockStateUnknown)
+	}
+}
+
+// TestDeploymentGateAppendNoOpForNonDeploymentType verifies that
+// AppendDeploymentGateStatus silently no-ops for non-deployment issue types,
+// and does not create any gate record.
+func TestDeploymentGateAppendNoOpForNonDeploymentType(t *testing.T) {
+	d := testDB(t)
+	i := makeIssue("SO-712")
+	i.Type = models.TypeTask
+	i.Status = models.StatusTodo
+	if err := d.CreateIssue(i); err != nil {
+		t.Fatalf("create task issue: %v", err)
+	}
+
+	if err := d.AppendDeploymentGateStatus(i.Key, i.Type, models.StatusBlocked, "should not create gate", "recheck"); err != nil {
+		t.Fatalf("unexpected error for non-deployment type: %v", err)
+	}
+
+	_, err := d.GetDeploymentGateByIssueKey(i.Key)
+	if err == nil {
+		t.Fatal("expected no gate record for non-deployment issue type, but found one")
+	}
+	if err != sql.ErrNoRows {
+		t.Fatalf("expected sql.ErrNoRows, got: %v", err)
+	}
+}
+
+// TestDeploymentGateReleaseIssueCreatesGate verifies that a release-type issue
+// also creates a canonical gate record on creation, ensuring the same invariant
+// holds for release as for deployment types.
+func TestDeploymentGateReleaseIssueCreatesGate(t *testing.T) {
+	d := testDB(t)
+	i := makeIssue("SO-713")
+	i.Type = models.TypeRelease
+	i.Status = models.StatusTodo
+	if err := d.CreateIssue(i); err != nil {
+		t.Fatalf("create release issue: %v", err)
+	}
+
+	gate, err := d.GetDeploymentGateByIssueKey(i.Key)
+	if err != nil {
+		t.Fatalf("get gate: %v", err)
+	}
+	if gate.Status != models.GateStatusOpen {
+		t.Fatalf("gate status = %q, want %q", gate.Status, models.GateStatusOpen)
+	}
+	if gate.UnblockState != models.UnblockStateUnblocked {
+		t.Fatalf("gate unblock_state = %q, want %q", gate.UnblockState, models.UnblockStateUnblocked)
+	}
+
+	events, err := d.ListDeploymentGateEvents(gate.ID)
+	if err != nil {
+		t.Fatalf("list gate events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 initial gate event, got %d", len(events))
+	}
+	if events[0].Reason != "created" {
+		t.Fatalf("initial event reason = %q, want created", events[0].Reason)
+	}
+}
+
+// TestDeploymentGateIdempotentEnsureDoesNotDuplicate verifies that calling
+// EnsureCanonicalDeploymentGate multiple times on an existing gate does not
+// create duplicate gate records.
+func TestDeploymentGateIdempotentEnsureDoesNotDuplicate(t *testing.T) {
+	d := testDB(t)
+	i := makeIssue("SO-714")
+	i.Type = models.TypeDeploy
+	i.Status = models.StatusTodo
+	if err := d.CreateIssue(i); err != nil {
+		t.Fatalf("create deployment issue: %v", err)
+	}
+
+	firstGate, err := d.GetDeploymentGateByIssueKey(i.Key)
+	if err != nil {
+		t.Fatalf("get gate after creation: %v", err)
+	}
+
+	// Call EnsureCanonicalDeploymentGate again — must be idempotent
+	if err := d.EnsureCanonicalDeploymentGate(i.Key, i.Type, i.Status); err != nil {
+		t.Fatalf("second EnsureCanonicalDeploymentGate: %v", err)
+	}
+
+	secondGate, err := d.GetDeploymentGateByIssueKey(i.Key)
+	if err != nil {
+		t.Fatalf("get gate after second ensure: %v", err)
+	}
+
+	if firstGate.ID != secondGate.ID {
+		t.Fatalf("gate ID changed on idempotent ensure: %s -> %s", firstGate.ID, secondGate.ID)
+	}
+
+	// Verify no duplicate rows
+	var count int
+	if err := d.QueryRow(`SELECT COUNT(*) FROM deployment_gates WHERE issue_key = ?`, i.Key).Scan(&count); err != nil {
+		t.Fatalf("count gates: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 canonical gate record, found %d", count)
+	}
+}
+
+// TestDeploymentGateBlockedToUnblockedTransition verifies the full sequence:
+// initial creation (open), recheck marks blocked, recheck clears to open again.
+// This is the canonical happy path described in SO-98 acceptance criteria.
+func TestDeploymentGateBlockedToUnblockedTransition(t *testing.T) {
+	d := testDB(t)
+	i := makeIssue("SO-715")
+	i.Type = models.TypeDeploy
+	i.Status = models.StatusTodo
+	if err := d.CreateIssue(i); err != nil {
+		t.Fatalf("create deployment issue: %v", err)
+	}
+
+	// Step 1: initial gate must be open
+	gate, err := d.GetDeploymentGateByIssueKey(i.Key)
+	if err != nil {
+		t.Fatalf("get initial gate: %v", err)
+	}
+	if gate.Status != models.GateStatusOpen {
+		t.Fatalf("initial gate status = %q, want open", gate.Status)
+	}
+	gateID := gate.ID
+
+	// Step 2: recheck marks blocked
+	if err := d.AppendDeploymentGateStatus(i.Key, i.Type, models.StatusBlocked, "dependency not ready", "recheck"); err != nil {
+		t.Fatalf("append blocked: %v", err)
+	}
+	gate, err = d.GetDeploymentGateByIssueKey(i.Key)
+	if err != nil {
+		t.Fatalf("get blocked gate: %v", err)
+	}
+	if gate.ID != gateID {
+		t.Fatalf("gate ID changed on recheck: %s -> %s", gateID, gate.ID)
+	}
+	if gate.Status != models.GateStatusBlocked {
+		t.Fatalf("blocked gate status = %q, want blocked", gate.Status)
+	}
+	if gate.UnblockCondition != "dependency not ready" {
+		t.Fatalf("unblock_condition = %q, want 'dependency not ready'", gate.UnblockCondition)
+	}
+
+	// Step 3: recheck resolves block
+	if err := d.AppendDeploymentGateStatus(i.Key, i.Type, models.StatusInProgress, "dependency resolved", "recheck"); err != nil {
+		t.Fatalf("append resolved: %v", err)
+	}
+	gate, err = d.GetDeploymentGateByIssueKey(i.Key)
+	if err != nil {
+		t.Fatalf("get resolved gate: %v", err)
+	}
+	if gate.ID != gateID {
+		t.Fatalf("gate ID changed after resolution: %s -> %s", gateID, gate.ID)
+	}
+	if gate.Status != models.GateStatusOpen {
+		t.Fatalf("resolved gate status = %q, want open", gate.Status)
+	}
+	if gate.UnblockState != models.UnblockStateUnblocked {
+		t.Fatalf("unblock_state = %q, want %q", gate.UnblockState, models.UnblockStateUnblocked)
+	}
+
+	// Verify all events are on the single canonical gate
+	events, err := d.ListDeploymentGateEvents(gateID)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) < 3 {
+		t.Fatalf("expected at least 3 gate events (created, blocked, resolved), got %d", len(events))
+	}
+}
