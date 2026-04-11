@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -239,6 +240,72 @@ func TestAgentCapabilityMatrixContractEndpoint(t *testing.T) {
 	}
 	if _, ok := payload["status_values"]["unknown"]; !ok {
 		t.Fatalf("contract missing unknown status description")
+	}
+}
+
+func TestAgentCapabilityMatrixSanitizesSecretValues(t *testing.T) {
+	d := capabilityTestDB(t)
+	hub := NewSSEHub()
+	defer hub.Close()
+
+	const secretEnvName = "SANITIZE_SECRET_ENV"
+	const secretEnvValue = "super-secret-value-123"
+	t.Setenv(secretEnvName, secretEnvValue)
+
+	agent := &models.Agent{
+		Name:          "Security Agent",
+		Slug:          "security-agent",
+		ArchetypeSlug: "backend-engineer",
+		Runner:        models.RunnerOpenCode,
+		Model:         "default",
+		ApiKeyEnv:     secretEnvName,
+		WorkingDir:    t.TempDir(),
+		MaxTurns:      50,
+		TimeoutSec:    1200,
+		Active:        true,
+	}
+	if err := d.CreateAgent(agent); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+
+	rawKey := "so_test_capability_key_sanitized"
+	h := sha256.Sum256([]byte(rawKey))
+	if err := d.CreateAPIKey(agent.ID, "run-capability-4", hex.EncodeToString(h[:]), "so_test", time.Hour); err != nil {
+		t.Fatalf("create api key: %v", err)
+	}
+
+	api := NewAPI(d, hub, nil, nil, &capabilityStubTelegram{}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agents/capability-matrix", nil)
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	w := httptest.NewRecorder()
+
+	handler := api.Auth(api.AgentCapabilityMatrix)
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	body := w.Body.String()
+	if strings.Contains(body, secretEnvName) {
+		t.Fatalf("response leaked credential env var name")
+	}
+	if strings.Contains(body, secretEnvValue) {
+		t.Fatalf("response leaked credential env var value")
+	}
+	if strings.Contains(body, rawKey) {
+		t.Fatalf("response leaked bearer token")
+	}
+
+	var resp capabilityMatrixResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	row := findAgentRow(t, resp.Agents, "security-agent")
+	cred := findCredential(t, row.Credentials, "cred:security-agent:primary_api_key")
+	if cred.Status != "verified" {
+		t.Fatalf("credential status = %q, want verified", cred.Status)
 	}
 }
 
