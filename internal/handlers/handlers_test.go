@@ -1724,6 +1724,60 @@ func TestGetIssue_IncludesCanonicalDeploymentGateAndHistory(t *testing.T) {
 	}
 }
 
+func TestGetIssue_IncludesCanonicalDeploymentGateForLegacyDeployType(t *testing.T) {
+	d := testDB(t)
+	hub := NewSSEHub()
+	defer hub.Close()
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{}, nil)
+
+	owner, ownerKey := createAgentWithKey(t, d, "Release Owner", "legacy-release-owner", "backend")
+
+	issue := &models.Issue{Key: "SO-604", Title: "Legacy Deploy Gate", Status: models.StatusTodo, Type: "deploy", AssigneeAgentID: &owner.ID}
+	if err := d.CreateIssue(issue); err != nil {
+		t.Fatalf("create issue: %v", err)
+	}
+
+	patchReq := httptest.NewRequest("PATCH", "/api/v1/issues/SO-604", strings.NewReader(`{"status":"blocked","unblock_condition":"wait for canary metrics"}`))
+	patchReq.Header.Set("Authorization", "Bearer "+ownerKey)
+	patchReq.Header.Set("Content-Type", "application/json")
+	patchReq.SetPathValue("key", "SO-604")
+	patchW := httptest.NewRecorder()
+	api.Auth(api.UpdateIssue)(patchW, patchReq)
+	if patchW.Code != http.StatusOK {
+		t.Fatalf("patch status = %d, want 200; body: %s", patchW.Code, patchW.Body.String())
+	}
+
+	getReq := httptest.NewRequest("GET", "/api/v1/issues/SO-604", nil)
+	getReq.Header.Set("Authorization", "Bearer "+ownerKey)
+	getReq.SetPathValue("key", "SO-604")
+	getW := httptest.NewRecorder()
+	api.Auth(api.GetIssue)(getW, getReq)
+	if getW.Code != http.StatusOK {
+		t.Fatalf("get status = %d, want 200; body: %s", getW.Code, getW.Body.String())
+	}
+
+	var payload struct {
+		Issue                 models.Issue                 `json:"issue"`
+		DeploymentGate        models.DeploymentGate        `json:"deployment_gate"`
+		DeploymentGateHistory []models.DeploymentGateEvent `json:"deployment_gate_history"`
+	}
+	if err := json.Unmarshal(getW.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal deployment gate payload: %v", err)
+	}
+	if payload.DeploymentGate.IssueKey != "SO-604" {
+		t.Fatalf("deployment_gate.issue_key = %q, want SO-604", payload.DeploymentGate.IssueKey)
+	}
+	if payload.DeploymentGate.Status != models.GateStatusBlocked {
+		t.Fatalf("deployment_gate.status = %q, want %q", payload.DeploymentGate.Status, models.GateStatusBlocked)
+	}
+	if payload.DeploymentGate.UnblockState != models.UnblockStateBlocked {
+		t.Fatalf("deployment_gate.unblock_state = %q, want %q", payload.DeploymentGate.UnblockState, models.UnblockStateBlocked)
+	}
+	if len(payload.DeploymentGateHistory) < 2 {
+		t.Fatalf("deployment_gate_history length = %d, want >=2", len(payload.DeploymentGateHistory))
+	}
+}
+
 func TestGetIssue_DoesNotIncludeDeploymentGateForNonDeploymentIssueType(t *testing.T) {
 	d := testDB(t)
 	hub := NewSSEHub()
@@ -1756,6 +1810,123 @@ func TestGetIssue_DoesNotIncludeDeploymentGateForNonDeploymentIssueType(t *testi
 	if _, ok := payload["deployment_gate_history"]; ok {
 		t.Fatal("deployment_gate_history unexpectedly present for non-deployment issue type")
 	}
+}
+
+func TestGetIssue_IncludesRunsWithExecutionMetadataSnapshots(t *testing.T) {
+	d := testDB(t)
+	hub := NewSSEHub()
+	defer hub.Close()
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{}, nil)
+
+	owner, ownerKey := createAgentWithKey(t, d, "Runtime Owner", "runtime-owner", "backend")
+	issue := &models.Issue{Key: "SO-700", Title: "Persist Runtime Metadata", Status: models.StatusTodo, Type: models.TypeTask, AssigneeAgentID: &owner.ID}
+	if err := d.CreateIssue(issue); err != nil {
+		t.Fatalf("create issue: %v", err)
+	}
+
+	firstRunner := "opencode"
+	firstModel := "gpt-5.3-codex"
+	firstWorktree := "/tmp/wt-one"
+	firstBranch := "feature/so-100"
+	firstCommit := "1111111111111111111111111111111111111111"
+	firstGateTarget := "issue:SO-700"
+	issueKey := "SO-700"
+
+	firstRun := &models.Run{
+		AgentID:        owner.ID,
+		IssueKey:       &issueKey,
+		Mode:           "task",
+		Status:         models.RunStatusCompleted,
+		RunnerSnapshot: &firstRunner,
+		ModelSnapshot:  &firstModel,
+		GitWorktree:    &firstWorktree,
+		GitBranch:      &firstBranch,
+		GitCommitSHA:   &firstCommit,
+		GateTarget:     &firstGateTarget,
+	}
+	if err := d.CreateRun(firstRun); err != nil {
+		t.Fatalf("create first run: %v", err)
+	}
+
+	secondRunner := "codex"
+	secondModel := "gpt-5.4-pro"
+	secondWorktree := "/tmp/wt-two"
+	secondBranch := "feature/so-100-followup"
+	secondCommit := "2222222222222222222222222222222222222222"
+	secondGateTarget := "issue:SO-700"
+
+	secondRun := &models.Run{
+		AgentID:        owner.ID,
+		IssueKey:       &issueKey,
+		Mode:           "task",
+		Status:         models.RunStatusRunning,
+		RunnerSnapshot: &secondRunner,
+		ModelSnapshot:  &secondModel,
+		GitWorktree:    &secondWorktree,
+		GitBranch:      &secondBranch,
+		GitCommitSHA:   &secondCommit,
+		GateTarget:     &secondGateTarget,
+	}
+	if err := d.CreateRun(secondRun); err != nil {
+		t.Fatalf("create second run: %v", err)
+	}
+
+	getReq := httptest.NewRequest("GET", "/api/v1/issues/SO-700", nil)
+	getReq.Header.Set("Authorization", "Bearer "+ownerKey)
+	getReq.SetPathValue("key", "SO-700")
+	getW := httptest.NewRecorder()
+	api.Auth(api.GetIssue)(getW, getReq)
+
+	if getW.Code != http.StatusOK {
+		t.Fatalf("get status = %d, want 200; body: %s", getW.Code, getW.Body.String())
+	}
+
+	var payload struct {
+		Issue models.Issue `json:"issue"`
+		Runs  []models.Run `json:"runs"`
+	}
+	if err := json.Unmarshal(getW.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal issue payload: %v", err)
+	}
+
+	if payload.Issue.Key != "SO-700" {
+		t.Fatalf("issue.key = %q, want SO-700", payload.Issue.Key)
+	}
+	if len(payload.Runs) != 2 {
+		t.Fatalf("runs length = %d, want 2", len(payload.Runs))
+	}
+
+	if payload.Runs[0].ID != secondRun.ID {
+		t.Fatalf("runs[0].id = %q, want %q", payload.Runs[0].ID, secondRun.ID)
+	}
+	if payload.Runs[1].ID != firstRun.ID {
+		t.Fatalf("runs[1].id = %q, want %q", payload.Runs[1].ID, firstRun.ID)
+	}
+
+	assertRunSnapshot := func(label string, run models.Run, wantRunner, wantModel, wantWorktree, wantBranch, wantCommit, wantGate string) {
+		t.Helper()
+		if run.RunnerSnapshot == nil || *run.RunnerSnapshot != wantRunner {
+			t.Fatalf("%s runner_snapshot = %v, want %q", label, run.RunnerSnapshot, wantRunner)
+		}
+		if run.ModelSnapshot == nil || *run.ModelSnapshot != wantModel {
+			t.Fatalf("%s model_snapshot = %v, want %q", label, run.ModelSnapshot, wantModel)
+		}
+		if run.GitWorktree == nil || *run.GitWorktree != wantWorktree {
+			t.Fatalf("%s git_worktree_snapshot = %v, want %q", label, run.GitWorktree, wantWorktree)
+		}
+		if run.GitBranch == nil || *run.GitBranch != wantBranch {
+			t.Fatalf("%s git_branch_snapshot = %v, want %q", label, run.GitBranch, wantBranch)
+		}
+		if run.GitCommitSHA == nil || *run.GitCommitSHA != wantCommit {
+			t.Fatalf("%s git_commit_sha_snapshot = %v, want %q", label, run.GitCommitSHA, wantCommit)
+		}
+		if run.GateTarget == nil || *run.GateTarget != wantGate {
+			t.Fatalf("%s gate_target_snapshot = %v, want %q", label, run.GateTarget, wantGate)
+		}
+	}
+
+	assertRunSnapshot("runs[0]", payload.Runs[0], secondRunner, secondModel, secondWorktree, secondBranch, secondCommit, secondGateTarget)
+	assertRunSnapshot("runs[1]", payload.Runs[1], firstRunner, firstModel, firstWorktree, firstBranch, firstCommit, firstGateTarget)
 }
 
 func TestCreateSubIssueFromUI_DetailForm(t *testing.T) {
