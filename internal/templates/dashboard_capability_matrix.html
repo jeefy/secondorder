@@ -1,0 +1,99 @@
+{{define "dashboard_capability_matrix"}}
+<section id="dashboard-capability-matrix"
+         class="mt-8"
+         hx-get="/dashboard/capability-matrix" hx-target="#dashboard-capability-matrix" hx-swap="outerHTML"
+         hx-trigger="load, run-started from:body,run-complete from:body,agent-changed from:body"
+         aria-busy="false">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-[13px] font-medium text-ink2">Verified Capability Matrix</h2>
+    <span class="text-xs text-ink3/50">Current run context</span>
+  </div>
+
+  <div class="mb-3 grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
+    <div class="bg-card border border-bd rounded-lg px-3 py-2 text-ink3/70">
+      <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 mr-1.5"></span>Verified
+    </div>
+    <div class="bg-card border border-bd rounded-lg px-3 py-2 text-ink3/70">
+      <span class="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1.5"></span>Unknown
+    </div>
+    <div class="bg-card border border-bd rounded-lg px-3 py-2 text-ink3/70">
+      <span class="inline-block w-2 h-2 rounded-full bg-zinc-500 mr-1.5"></span>Unavailable
+    </div>
+  </div>
+
+  {{if .CapabilityMatrixError}}
+  <div class="bg-card border border-red-500/30 rounded-lg px-4 py-4 text-sm text-red-300">
+    {{.CapabilityMatrixError}}
+  </div>
+  {{else if .CapabilityMatrixRows}}
+  <div class="space-y-3">
+    {{range .CapabilityMatrixRows}}
+    <article class="bg-card border border-bd rounded-lg p-4">
+      <div class="flex flex-wrap items-center gap-2 mb-3">
+        <h3 class="text-sm font-semibold text-ink">{{.AgentName}}</h3>
+        <span class="text-[11px] text-ink3/60 font-mono">{{.AgentSlug}}</span>
+        <span class="text-[10px] px-1.5 py-0.5 rounded bg-sf text-ink3">{{.ArchetypeSlug}}</span>
+        <span class="text-[10px] px-1.5 py-0.5 rounded bg-sf text-ink3 font-mono">{{.Runner}}</span>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <div class="rounded-md border border-bd bg-sf/40 p-3">
+          <div class="text-[11px] uppercase tracking-wider text-ink3/50 mb-2">Credentials / Integrations</div>
+          <div class="space-y-2">
+            {{range .Credentials}}
+            <div class="rounded border border-bd bg-card px-2.5 py-2 text-xs">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-ink2">{{.Label}}</span>
+                <span class="{{if eq .Status "verified"}}text-emerald-400{{else if eq .Status "unknown"}}text-amber-400{{else}}text-zinc-400{{end}} font-medium capitalize">{{.Status}}</span>
+              </div>
+              {{if .CredentialRef}}<div class="mt-1 text-[10px] text-ink3/50 font-mono">{{.CredentialRef}}</div>{{end}}
+              <div class="mt-1 text-[10px] text-ink3/40">{{.Source}}</div>
+              {{if .Reason}}<div class="mt-1 text-[10px] text-ink3/40">Reason: {{.Reason}}</div>{{end}}
+            </div>
+            {{end}}
+          </div>
+        </div>
+
+        <div class="rounded-md border border-bd bg-sf/40 p-3">
+          <div class="text-[11px] uppercase tracking-wider text-ink3/50 mb-2">Allowed External Actions</div>
+          <div class="space-y-2">
+            {{range .Actions}}
+            <div class="rounded border border-bd bg-card px-2.5 py-2 text-xs">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-ink2">{{.Label}}</span>
+                <span class="{{if eq .Status "verified"}}text-emerald-400{{else if eq .Status "unknown"}}text-amber-400{{else}}text-zinc-400{{end}} font-medium capitalize">{{.Status}}</span>
+              </div>
+              <div class="mt-1 text-[10px] text-ink3/40">{{.Source}}</div>
+              {{if .CredentialRef}}<div class="mt-1 text-[10px] text-ink3/50">Uses: <span class="font-mono">{{.CredentialRef}}</span></div>{{end}}
+              {{if .Reason}}<div class="mt-1 text-[10px] text-ink3/40">Reason: {{.Reason}}</div>{{end}}
+            </div>
+            {{end}}
+          </div>
+        </div>
+
+        <div class="rounded-md border border-bd bg-sf/40 p-3">
+          <div class="text-[11px] uppercase tracking-wider text-ink3/50 mb-2">Environment Capabilities</div>
+          <div class="space-y-2">
+            {{range .Environment}}
+            <div class="rounded border border-bd bg-card px-2.5 py-2 text-xs">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-ink2">{{.Label}}</span>
+                <span class="{{if eq .Status "verified"}}text-emerald-400{{else if eq .Status "unknown"}}text-amber-400{{else}}text-zinc-400{{end}} font-medium capitalize">{{.Status}}</span>
+              </div>
+              <div class="mt-1 text-[10px] text-ink3/40">{{.Source}}</div>
+              {{if .Reason}}<div class="mt-1 text-[10px] text-ink3/40">Reason: {{.Reason}}</div>{{end}}
+            </div>
+            {{end}}
+          </div>
+        </div>
+      </div>
+    </article>
+    {{end}}
+  </div>
+  {{else}}
+  <div class="bg-card border border-bd rounded-lg px-4 py-8 text-center text-sm text-ink3/50">
+    No agents available for this run context.
+  </div>
+  {{end}}
+</section>
+{{end}}
