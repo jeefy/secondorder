@@ -246,6 +246,7 @@ func main() {
 
 	// UI routes
 	mux.HandleFunc("GET /dashboard", ui.Dashboard)
+	mux.HandleFunc("GET /dashboard/capability-matrix", ui.DashboardCapabilityMatrix)
 	mux.HandleFunc("GET /strategy", ui.StrategyPage)
 	mux.HandleFunc("POST /strategy", ui.StrategyPage)
 	mux.HandleFunc("POST /strategy/apex/{id}", ui.UpdateApexBlockUI)

@@ -55,6 +55,7 @@ func (u *UI) Dashboard(w http.ResponseWriter, r *http.Request) {
 		stats         *models.DashboardStats
 		issues        []models.Issue
 		agents        []models.Agent
+		agentsErr     error
 		runningAgents map[string]bool
 		workBlocks    []models.WorkBlock
 	)
@@ -63,7 +64,7 @@ func (u *UI) Dashboard(w http.ResponseWriter, r *http.Request) {
 	wg.Add(5)
 	go func() { defer wg.Done(); stats, _ = u.db.GetDashboardStats() }()
 	go func() { defer wg.Done(); issues, _ = u.db.GetRecentIssues(20) }()
-	go func() { defer wg.Done(); agents, _ = u.db.ListAgents() }()
+	go func() { defer wg.Done(); agents, agentsErr = u.db.ListAgents() }()
 	go func() { defer wg.Done(); runningAgents, _ = u.db.GetRunningAgentIDs() }()
 	go func() { defer wg.Done(); workBlocks, _ = u.db.ListWorkBlocks() }()
 	wg.Wait()
@@ -89,6 +90,8 @@ func (u *UI) Dashboard(w http.ResponseWriter, r *http.Request) {
 		"IsPaused":       u.IsPaused(),
 	}
 
+	u.attachCapabilityMatrixData(data, agents, agentsErr)
+
 	if u.db.IsFeatureEnabled("supermemory") {
 		var supermemoryStats []models.SupermemoryAgentStat
 		var supermemoryTrend []models.SupermemoryDailyStat
@@ -110,6 +113,129 @@ func (u *UI) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	u.render(w, "dashboard", data)
+}
+
+func (u *UI) DashboardCapabilityMatrix(w http.ResponseWriter, r *http.Request) {
+	agents, err := u.db.ListAgents()
+	data := map[string]any{}
+	u.attachCapabilityMatrixData(data, agents, err)
+	u.render(w, "dashboard_capability_matrix", data)
+}
+
+func (u *UI) attachCapabilityMatrixData(data map[string]any, agents []models.Agent, agentsErr error) {
+	if agentsErr != nil {
+		data["CapabilityMatrixError"] = "Unable to load verified capability data right now."
+		return
+	}
+
+	rows := make([]dashboardCapabilityMatrixRow, 0, len(agents))
+	checkedAt := time.Now().UTC().Format(time.RFC3339)
+	for _, ag := range agents {
+		rows = append(rows, buildDashboardCapabilityMatrixRow(ag, checkedAt))
+	}
+	data["CapabilityMatrixRows"] = rows
+}
+
+type dashboardCapabilityCell struct {
+	Label         string
+	Status        string
+	Source        string
+	CheckedAt     string
+	Reason        string
+	CredentialRef string
+}
+
+type dashboardCapabilityMatrixRow struct {
+	AgentSlug     string
+	AgentName     string
+	ArchetypeSlug string
+	Runner        string
+	Credentials   []dashboardCapabilityCell
+	Actions       []dashboardCapabilityCell
+	Environment   []dashboardCapabilityCell
+}
+
+func buildDashboardCapabilityMatrixRow(ag models.Agent, checkedAt string) dashboardCapabilityMatrixRow {
+	credRef := fmt.Sprintf("cred:%s:primary_api_key", ag.Slug)
+	credential := dashboardCapabilityCell{
+		Label:         "Primary API key",
+		CredentialRef: credRef,
+		Source:        "agents.api_key_env",
+		CheckedAt:     checkedAt,
+	}
+	if strings.TrimSpace(ag.ApiKeyEnv) == "" {
+		credential.Status = "unavailable"
+		credential.Reason = "api_key_env_unset"
+	} else if _, present := os.LookupEnv(ag.ApiKeyEnv); !present {
+		credential.Status = "unknown"
+		credential.Source = "process_environment"
+		credential.Reason = "credential_value_not_in_runtime_env"
+	} else {
+		credential.Status = "verified"
+		credential.Source = "process_environment"
+	}
+
+	workspace := dashboardCapabilityCell{
+		Label:     "Workspace access",
+		Source:    "agents.working_dir",
+		CheckedAt: checkedAt,
+	}
+	if strings.TrimSpace(ag.WorkingDir) == "" {
+		workspace.Status = "unknown"
+		workspace.Reason = "working_dir_not_set"
+	} else if _, err := os.Stat(filepath.Clean(ag.WorkingDir)); err != nil {
+		workspace.Status = "unavailable"
+		workspace.Reason = "working_dir_missing"
+	} else {
+		workspace.Status = "verified"
+	}
+
+	chrome := dashboardCapabilityCell{
+		Label:     "Chrome MCP access",
+		Status:    dashboardStatusFromBool(ag.ChromeEnabled),
+		Source:    "agents.chrome_enabled",
+		CheckedAt: checkedAt,
+		Reason:    dashboardReasonFromBool(ag.ChromeEnabled, "chrome_disabled_for_agent"),
+	}
+
+	return dashboardCapabilityMatrixRow{
+		AgentSlug:     ag.Slug,
+		AgentName:     ag.Name,
+		ArchetypeSlug: ag.ArchetypeSlug,
+		Runner:        ag.Runner,
+		Credentials:   []dashboardCapabilityCell{credential},
+		Actions: []dashboardCapabilityCell{
+			{
+				Label:         "Submit archetype patch",
+				Status:        "verified",
+				Source:        "POST /api/v1/archetype-patches",
+				CheckedAt:     checkedAt,
+				CredentialRef: credRef,
+			},
+			{
+				Label:     "Merge pull request",
+				Status:    "unknown",
+				Source:    "policy_lookup:not_configured",
+				CheckedAt: checkedAt,
+				Reason:    "no_merge_policy_registry",
+			},
+		},
+		Environment: []dashboardCapabilityCell{workspace, chrome},
+	}
+}
+
+func dashboardStatusFromBool(v bool) string {
+	if v {
+		return "verified"
+	}
+	return "unavailable"
+}
+
+func dashboardReasonFromBool(v bool, reason string) string {
+	if v {
+		return ""
+	}
+	return reason
 }
 
 func (u *UI) ListIssues(w http.ResponseWriter, r *http.Request) {
