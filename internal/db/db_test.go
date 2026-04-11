@@ -78,6 +78,48 @@ func TestRunMigrationsIdempotent(t *testing.T) {
 	}
 }
 
+func TestOpenCreatesRunExecutionMetadataSnapshotColumns(t *testing.T) {
+	d := testDB(t)
+
+	rows, err := d.Query(`PRAGMA table_info(runs)`)
+	if err != nil {
+		t.Fatalf("pragma table_info(runs): %v", err)
+	}
+	defer rows.Close()
+
+	got := map[string]struct{}{}
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			typ        string
+			notNull    int
+			defaultVal sql.NullString
+			pk         int
+		)
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultVal, &pk); err != nil {
+			t.Fatalf("scan pragma: %v", err)
+		}
+		got[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("pragma rows: %v", err)
+	}
+
+	for _, col := range []string{
+		"runner_snapshot",
+		"model_snapshot",
+		"git_worktree_snapshot",
+		"git_branch_snapshot",
+		"git_commit_sha_snapshot",
+		"gate_target_snapshot",
+	} {
+		if _, ok := got[col]; !ok {
+			t.Fatalf("runs column %q missing after clean migrations", col)
+		}
+	}
+}
+
 func TestOpenSetsAgentTimeoutDefault(t *testing.T) {
 	d := testDB(t)
 
@@ -163,6 +205,87 @@ func TestRunMigrationsUpdatesLegacyDefaultTimeoutAgents(t *testing.T) {
 	}
 	if got != 900 {
 		t.Fatalf("custom timeout = %d, want 900", got)
+	}
+}
+
+func TestRunMigrationsAddsRunExecutionMetadataSnapshotColumnsFromV25(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-v25.db")
+	sqlDB, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer sqlDB.Close()
+
+	stmts := []string{
+		`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+		`CREATE TABLE runs (
+			id TEXT PRIMARY KEY,
+			agent_id TEXT NOT NULL,
+			issue_key TEXT,
+			mode TEXT NOT NULL DEFAULT 'task',
+			status TEXT NOT NULL DEFAULT 'running',
+			stdout TEXT NOT NULL DEFAULT '',
+			diff TEXT NOT NULL DEFAULT '',
+			input_tokens INTEGER NOT NULL DEFAULT 0,
+			output_tokens INTEGER NOT NULL DEFAULT 0,
+			cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+			cache_create_tokens INTEGER NOT NULL DEFAULT 0,
+			total_cost_usd REAL NOT NULL DEFAULT 0,
+			started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			completed_at DATETIME,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+	}
+	for i := 1; i <= 25; i++ {
+		stmts = append(stmts, `INSERT INTO schema_migrations (version) VALUES (`+strconv.Itoa(i)+`)`)
+	}
+	for _, stmt := range stmts {
+		if _, err := sqlDB.Exec(stmt); err != nil {
+			t.Fatalf("exec %q: %v", stmt, err)
+		}
+	}
+
+	d := &DB{DB: sqlDB}
+	if err := d.RunMigrations(); err != nil {
+		t.Fatalf("run migrations: %v", err)
+	}
+
+	rows, err := d.Query(`PRAGMA table_info(runs)`)
+	if err != nil {
+		t.Fatalf("pragma table_info(runs): %v", err)
+	}
+	defer rows.Close()
+
+	got := map[string]struct{}{}
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			typ        string
+			notNull    int
+			defaultVal sql.NullString
+			pk         int
+		)
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultVal, &pk); err != nil {
+			t.Fatalf("scan pragma: %v", err)
+		}
+		got[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("pragma rows: %v", err)
+	}
+
+	for _, col := range []string{
+		"runner_snapshot",
+		"model_snapshot",
+		"git_worktree_snapshot",
+		"git_branch_snapshot",
+		"git_commit_sha_snapshot",
+		"gate_target_snapshot",
+	} {
+		if _, ok := got[col]; !ok {
+			t.Fatalf("runs column %q missing after migration from v25", col)
+		}
 	}
 }
 
