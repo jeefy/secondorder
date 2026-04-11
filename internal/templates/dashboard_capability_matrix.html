@@ -1,0 +1,115 @@
+{{define "dashboard_capability_matrix"}}
+<section id="dashboard-capability-matrix"
+         class="mt-8"
+         hx-get="{{if .CapabilityMatrixRefreshPath}}{{.CapabilityMatrixRefreshPath}}{{else}}/dashboard/capability-matrix{{end}}" hx-target="#dashboard-capability-matrix" hx-swap="outerHTML"
+         hx-trigger="load, run-started from:body,run-complete from:body,agent-changed from:body"
+         aria-busy="false">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-[13px] font-medium text-ink2">Verified Capability Matrix</h2>
+    <div class="flex items-center gap-2 text-xs text-ink3/50">
+      <span>Current run context</span>
+      <span class="htmx-indicator inline-flex items-center gap-1 text-blue-400" aria-live="polite">
+        <span class="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></span>Refreshing
+      </span>
+    </div>
+  </div>
+
+  <div class="mb-3 grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
+    <div class="bg-card border border-bd rounded-lg px-3 py-2 text-ink3/70">
+      <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 mr-1.5"></span>
+      <span class="font-medium text-ink2">Verified</span>
+      <div class="mt-1 text-[10px] text-ink3/50">{{index .CapabilityStatusDescriptions "verified"}}</div>
+    </div>
+    <div class="bg-card border border-bd rounded-lg px-3 py-2 text-ink3/70">
+      <span class="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1.5"></span>
+      <span class="font-medium text-ink2">Unknown</span>
+      <div class="mt-1 text-[10px] text-ink3/50">{{index .CapabilityStatusDescriptions "unknown"}}</div>
+    </div>
+    <div class="bg-card border border-bd rounded-lg px-3 py-2 text-ink3/70">
+      <span class="inline-block w-2 h-2 rounded-full bg-zinc-500 mr-1.5"></span>
+      <span class="font-medium text-ink2">Unavailable</span>
+      <div class="mt-1 text-[10px] text-ink3/50">{{index .CapabilityStatusDescriptions "unavailable"}}</div>
+    </div>
+  </div>
+
+  {{if .CapabilityMatrixError}}
+  <div class="bg-card border border-red-500/30 rounded-lg px-4 py-4 text-sm text-red-300">
+    {{.CapabilityMatrixError}}
+  </div>
+  {{else if .CapabilityMatrixRows}}
+  <div class="bg-card border border-bd rounded-lg px-4 py-2 mb-3 text-[11px] text-ink3/60 flex flex-wrap gap-4">
+    <span>Generated: <span class="font-mono">{{.CapabilityMatrixRun.GeneratedAtUTC}}</span></span>
+    <span>Instance: <span class="font-mono">{{.CapabilityMatrixRun.InstanceName}}</span></span>
+    <span>Running runs: <span class="font-mono">{{.CapabilityMatrixRun.RunningRunsCount}}</span></span>
+  </div>
+  <div class="space-y-3">
+    {{range .CapabilityMatrixRows}}
+    <article class="bg-card border border-bd rounded-lg p-4">
+      <div class="flex flex-wrap items-center gap-2 mb-3">
+        <h3 class="text-sm font-semibold text-ink">{{.AgentName}}</h3>
+        <span class="text-[11px] text-ink3/60 font-mono">{{.AgentSlug}}</span>
+        <span class="text-[10px] px-1.5 py-0.5 rounded bg-sf text-ink3">{{.ArchetypeSlug}}</span>
+        <span class="text-[10px] px-1.5 py-0.5 rounded bg-sf text-ink3 font-mono">{{.Runner}}</span>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <div class="rounded-md border border-bd bg-sf/40 p-3">
+          <div class="text-[11px] uppercase tracking-wider text-ink3/50 mb-2">Credentials / Integrations</div>
+          <div class="space-y-2">
+            {{range .Credentials}}
+            <div class="rounded border border-bd bg-card px-2.5 py-2 text-xs">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-ink2">{{.DisplayName}}</span>
+                <span class="{{if eq .Status "verified"}}text-emerald-400{{else if eq .Status "unknown"}}text-amber-400{{else}}text-zinc-400{{end}} font-medium capitalize">{{.Status}}</span>
+              </div>
+              <div class="mt-1 text-[10px] text-ink3/50 font-mono">{{.Ref}}</div>
+              <div class="mt-1 text-[10px] text-ink3/40">{{.Verification.Source}}</div>
+              {{if .ReasonCodes}}<div class="mt-1 text-[10px] text-ink3/40">Reason: {{index .ReasonCodes 0}}</div>{{end}}
+            </div>
+            {{end}}
+          </div>
+        </div>
+
+        <div class="rounded-md border border-bd bg-sf/40 p-3">
+          <div class="text-[11px] uppercase tracking-wider text-ink3/50 mb-2">Allowed External Actions</div>
+          <div class="space-y-2">
+            {{range .Capabilities}}
+            <div class="rounded border border-bd bg-card px-2.5 py-2 text-xs">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-ink2">{{.DisplayName}}</span>
+                <span class="{{if eq .Status "verified"}}text-emerald-400{{else if eq .Status "unknown"}}text-amber-400{{else}}text-zinc-400{{end}} font-medium capitalize">{{.Status}}</span>
+              </div>
+              <div class="mt-1 text-[10px] text-ink3/40">{{.Verification.Source}}</div>
+              {{if .CredentialRefs}}<div class="mt-1 text-[10px] text-ink3/50">Uses: <span class="font-mono">{{index .CredentialRefs 0}}</span></div>{{end}}
+              {{if .ReasonCodes}}<div class="mt-1 text-[10px] text-ink3/40">Reason: {{index .ReasonCodes 0}}</div>{{end}}
+            </div>
+            {{end}}
+          </div>
+        </div>
+
+        <div class="rounded-md border border-bd bg-sf/40 p-3">
+          <div class="text-[11px] uppercase tracking-wider text-ink3/50 mb-2">Environment Capabilities</div>
+          <div class="space-y-2">
+            {{range .EnvironmentCapabilities}}
+            <div class="rounded border border-bd bg-card px-2.5 py-2 text-xs">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-ink2">{{.DisplayName}}</span>
+                <span class="{{if eq .Status "verified"}}text-emerald-400{{else if eq .Status "unknown"}}text-amber-400{{else}}text-zinc-400{{end}} font-medium capitalize">{{.Status}}</span>
+              </div>
+              <div class="mt-1 text-[10px] text-ink3/40">{{.Verification.Source}}</div>
+              {{if .ReasonCodes}}<div class="mt-1 text-[10px] text-ink3/40">Reason: {{index .ReasonCodes 0}}</div>{{end}}
+            </div>
+            {{end}}
+          </div>
+        </div>
+      </div>
+    </article>
+    {{end}}
+  </div>
+  {{else}}
+  <div class="bg-card border border-bd rounded-lg px-4 py-8 text-center text-sm text-ink3/50">
+    No agents available for this run context.
+  </div>
+  {{end}}
+</section>
+{{end}}

@@ -79,13 +79,16 @@ func (u *UI) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := map[string]any{
-		"Stats":          stats,
-		"Issues":         issues,
-		"Agents":         agents,
-		"RunningAgents":  runningAgents,
-		"AlignmentScore": alignmentScore,
-		"IsPaused":       u.IsPaused(),
+		"Stats":                       stats,
+		"Issues":                      issues,
+		"Agents":                      agents,
+		"RunningAgents":               runningAgents,
+		"AlignmentScore":              alignmentScore,
+		"IsPaused":                    u.IsPaused(),
+		"CapabilityMatrixRefreshPath": "/dashboard/capability-matrix",
 	}
+
+	u.attachCapabilityMatrixData(data, "")
 
 	if u.db.IsFeatureEnabled("supermemory") {
 		var supermemoryStats []models.SupermemoryAgentStat
@@ -108,6 +111,48 @@ func (u *UI) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	u.render(w, "dashboard", data)
+}
+
+func (u *UI) DashboardCapabilityMatrix(w http.ResponseWriter, r *http.Request) {
+	data := map[string]any{
+		"CapabilityMatrixRefreshPath": "/dashboard/capability-matrix",
+	}
+	u.attachCapabilityMatrixData(data, "")
+	u.render(w, "dashboard_capability_matrix", data)
+}
+
+func (u *UI) AgentCapabilityMatrix(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	data := map[string]any{
+		"CapabilityMatrixRefreshPath": "/agents/" + slug + "/capability-matrix",
+	}
+	u.attachCapabilityMatrixData(data, slug)
+	u.render(w, "dashboard_capability_matrix", data)
+}
+
+func (u *UI) attachCapabilityMatrixData(data map[string]any, agentSlug string) {
+	data["CapabilityStatusDescriptions"] = capabilityStatusDescriptions()
+
+	matrix, err := buildCapabilityMatrixResponse(u.db, time.Now().UTC())
+	if err != nil {
+		data["CapabilityMatrixError"] = "Unable to load verified capability data right now."
+		return
+	}
+
+	rows := matrix.Agents
+	if agentSlug != "" {
+		filtered := make([]agentCapabilityMatrixRow, 0, 1)
+		for _, row := range rows {
+			if row.AgentSlug == agentSlug {
+				filtered = append(filtered, row)
+				break
+			}
+		}
+		rows = filtered
+	}
+
+	data["CapabilityMatrixRun"] = matrix.Run
+	data["CapabilityMatrixRows"] = rows
 }
 
 func (u *UI) ListIssues(w http.ResponseWriter, r *http.Request) {
@@ -590,16 +635,19 @@ func (u *UI) AgentDetail(w http.ResponseWriter, r *http.Request) {
 	availableIssues, _ := u.db.ListIssues("todo,in_progress,in_review", 100)
 	todayTokens, todayCost, totalTokens, totalCost, _ := u.db.GetAgentUsage(agent.ID)
 
-	u.render(w, "agent_detail", map[string]any{
-		"Agent":           agent,
-		"Runs":            runs,
-		"Issues":          issues,
-		"AvailableIssues": availableIssues,
-		"TodayTokens":     todayTokens,
-		"TodayCost":       todayCost,
-		"TotalTokens":     totalTokens,
-		"TotalCost":       totalCost,
-	})
+	data := map[string]any{
+		"Agent":                       agent,
+		"Runs":                        runs,
+		"Issues":                      issues,
+		"AvailableIssues":             availableIssues,
+		"TodayTokens":                 todayTokens,
+		"TodayCost":                   todayCost,
+		"TotalTokens":                 totalTokens,
+		"TotalCost":                   totalCost,
+		"CapabilityMatrixRefreshPath": "/agents/" + agent.Slug + "/capability-matrix",
+	}
+	u.attachCapabilityMatrixData(data, agent.Slug)
+	u.render(w, "agent_detail", data)
 }
 
 func (u *UI) updateAgentUI(w http.ResponseWriter, r *http.Request, slug string) {
