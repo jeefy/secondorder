@@ -4,9 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -21,7 +21,7 @@ func (s *capabilityStubTelegram) SendMessage(_ string) error                    
 
 func capabilityTestDB(t *testing.T) *db.DB {
 	t.Helper()
-	d, err := db.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()))
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
