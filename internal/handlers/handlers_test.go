@@ -1649,6 +1649,9 @@ func TestGetIssue_ExposesDeploymentGateFields(t *testing.T) {
 	if payload.Issue.GateStatus != "blocked" {
 		t.Fatalf("gate_status = %q, want blocked", payload.Issue.GateStatus)
 	}
+	if payload.Issue.UnblockState != models.UnblockStateBlocked {
+		t.Fatalf("unblock_state = %q, want %q", payload.Issue.UnblockState, models.UnblockStateBlocked)
+	}
 	if payload.Issue.UnblockCondition != "wait for canary metrics" {
 		t.Fatalf("unblock_condition = %q, want wait for canary metrics", payload.Issue.UnblockCondition)
 	}

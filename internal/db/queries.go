@@ -156,19 +156,24 @@ const issueCols = `i.id, i.key, i.title, i.description, i.status, i.type, i.prio
 	i.parent_issue_key, i.work_block_id, i.started_at, i.completed_at, i.created_at, i.updated_at,
 	COALESCE(a.name, ''), COALESCE(a.slug, ''), i.stages, i.current_stage_id,
 	COALESCE((SELECT dg.status FROM deployment_gates dg WHERE dg.issue_key = i.key LIMIT 1), ''),
+	COALESCE((SELECT CASE
+		WHEN dg.status = 'blocked' THEN 'blocked'
+		WHEN dg.status IN ('open','passed') THEN 'unblocked'
+		ELSE 'unknown'
+	END FROM deployment_gates dg WHERE dg.issue_key = i.key LIMIT 1), ''),
 	COALESCE((SELECT dg.unblock_condition FROM deployment_gates dg WHERE dg.issue_key = i.key LIMIT 1), '')`
 
 func scanIssue(scanner interface {
 	Scan(dest ...any) error
 }) (*models.Issue, error) {
 	i := &models.Issue{}
-	var stagesJSON, gateStatus, unblockCondition string
+	var stagesJSON, gateStatus, unblockState, unblockCondition string
 	var startedAt, completedAt NullDBTime
 	var createdAt, updatedAt DBTime
 	err := scanner.Scan(
 		&i.ID, &i.Key, &i.Title, &i.Description, &i.Status, &i.Type, &i.Priority, &i.AssigneeAgentID,
 		&i.ParentIssueKey, &i.WorkBlockID, &startedAt, &completedAt, &createdAt, &updatedAt,
-		&i.AssigneeName, &i.AssigneeSlug, &stagesJSON, &i.CurrentStageID, &gateStatus, &unblockCondition)
+		&i.AssigneeName, &i.AssigneeSlug, &stagesJSON, &i.CurrentStageID, &gateStatus, &unblockState, &unblockCondition)
 	if err != nil {
 		return nil, err
 	}
@@ -187,6 +192,7 @@ func scanIssue(scanner interface {
 		i.Stages = []models.IssueStage{}
 	}
 	i.GateStatus = gateStatus
+	i.UnblockState = unblockState
 	i.UnblockCondition = unblockCondition
 	return i, nil
 }
@@ -318,18 +324,29 @@ func isDeploymentGateIssueType(issueType string) bool {
 func deriveGateStatusFromIssueStatus(issueStatus string) string {
 	switch issueStatus {
 	case models.StatusBlocked:
-		return "blocked"
+		return models.GateStatusBlocked
 	case models.StatusDone:
-		return "passed"
+		return models.GateStatusPassed
 	case models.StatusCancelled, models.StatusWontDo:
-		return "closed"
+		return models.GateStatusClosed
 	default:
-		return "open"
+		return models.GateStatusOpen
+	}
+}
+
+func deriveUnblockStateFromGateStatus(gateStatus string) string {
+	switch gateStatus {
+	case models.GateStatusBlocked:
+		return models.UnblockStateBlocked
+	case models.GateStatusOpen, models.GateStatusPassed:
+		return models.UnblockStateUnblocked
+	default:
+		return models.UnblockStateUnknown
 	}
 }
 
 func defaultUnblockCondition(gateStatus string) string {
-	if gateStatus == "blocked" {
+	if gateStatus == models.GateStatusBlocked {
 		return "Resolve blockers and run deployment gate recheck."
 	}
 	return ""
@@ -346,6 +363,7 @@ func (d *DB) EnsureCanonicalDeploymentGate(issueKey, issueType, issueStatus stri
 	}
 
 	gateStatus := deriveGateStatusFromIssueStatus(issueStatus)
+	unblockState := deriveUnblockStateFromGateStatus(gateStatus)
 	unblockCondition := defaultUnblockCondition(gateStatus)
 
 	if err == sql.ErrNoRows {
@@ -370,6 +388,8 @@ func (d *DB) EnsureCanonicalDeploymentGate(issueKey, issueType, issueStatus stri
 		return err
 	}
 
+	gate.UnblockState = unblockState
+
 	return nil
 }
 
@@ -382,6 +402,7 @@ func (d *DB) GetDeploymentGateByIssueKey(issueKey string) (*models.DeploymentGat
 	if err != nil {
 		return nil, err
 	}
+	g.UnblockState = deriveUnblockStateFromGateStatus(g.Status)
 	return g, nil
 }
 
@@ -418,6 +439,7 @@ func (d *DB) AppendDeploymentGateStatus(issueKey, issueType, issueStatus, unbloc
 	}
 
 	gateStatus := deriveGateStatusFromIssueStatus(issueStatus)
+	unblockState := deriveUnblockStateFromGateStatus(gateStatus)
 	if strings.TrimSpace(unblockCondition) == "" {
 		unblockCondition = defaultUnblockCondition(gateStatus)
 	}
@@ -430,6 +452,7 @@ func (d *DB) AppendDeploymentGateStatus(issueKey, issueType, issueStatus, unbloc
 		gateStatus, unblockCondition, now, gate.ID); err != nil {
 		return err
 	}
+	gate.UnblockState = unblockState
 
 	_, err = d.Exec(`INSERT INTO deployment_gate_events (id, gate_id, status, unblock_condition, reason, created_at)
 		VALUES (?, ?, ?, ?, ?, ?)`, uuid.NewString(), gate.ID, gateStatus, unblockCondition, reason, now)

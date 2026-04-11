@@ -130,6 +130,7 @@ func TestRunMigrationsUpdatesLegacyDefaultTimeoutAgents(t *testing.T) {
 	stmts := []string{
 		`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
 		`CREATE TABLE agents (id TEXT PRIMARY KEY, timeout_sec INTEGER NOT NULL DEFAULT 600)`,
+		`CREATE TABLE issues (id TEXT PRIMARY KEY, key TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'todo', type TEXT NOT NULL DEFAULT 'task')`,
 		`CREATE TABLE runs (id TEXT PRIMARY KEY)`,
 		`CREATE TABLE api_keys (id TEXT PRIMARY KEY, agent_id TEXT, key_hash TEXT, prefix TEXT, revoked_at DATETIME, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
 		`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
@@ -559,6 +560,9 @@ func TestDeploymentGateCanonicalCreationForDeploymentIssue(t *testing.T) {
 	if gate.Status != "blocked" {
 		t.Fatalf("gate status = %q, want blocked", gate.Status)
 	}
+	if gate.UnblockState != models.UnblockStateBlocked {
+		t.Fatalf("gate unblock_state = %q, want %q", gate.UnblockState, models.UnblockStateBlocked)
+	}
 	if gate.UnblockCondition == "" {
 		t.Fatal("expected non-empty unblock condition for blocked gate")
 	}
@@ -601,6 +605,9 @@ func TestDeploymentGateRecheckAppendsEventsOnSingleGate(t *testing.T) {
 	}
 	if gate.Status != "open" {
 		t.Fatalf("gate status = %q, want open", gate.Status)
+	}
+	if gate.UnblockState != models.UnblockStateUnblocked {
+		t.Fatalf("gate unblock_state = %q, want %q", gate.UnblockState, models.UnblockStateUnblocked)
 	}
 
 	events, err := d.ListDeploymentGateEvents(gate.ID)
@@ -663,6 +670,9 @@ func TestGetIssueIncludesCurrentGateFields(t *testing.T) {
 	}
 	if got.GateStatus != "blocked" {
 		t.Fatalf("gate_status = %q, want blocked", got.GateStatus)
+	}
+	if got.UnblockState != models.UnblockStateBlocked {
+		t.Fatalf("unblock_state = %q, want %q", got.UnblockState, models.UnblockStateBlocked)
 	}
 	if got.UnblockCondition != "awaiting QA signoff" {
 		t.Fatalf("unblock_condition = %q, want awaiting QA signoff", got.UnblockCondition)

@@ -26,6 +26,23 @@ const (
 	TypeFeature = "feature"
 	TypeRelease = "release"
 	TypeDeploy  = "deployment"
+	// TypeDeployment is kept for compatibility with older references.
+	TypeDeployment = TypeDeploy
+)
+
+// Deployment gate statuses
+const (
+	GateStatusOpen    = "open"
+	GateStatusBlocked = "blocked"
+	GateStatusPassed  = "passed"
+	GateStatusClosed  = "closed"
+)
+
+// Deployment gate unblock states
+const (
+	UnblockStateBlocked   = "blocked"
+	UnblockStateUnblocked = "unblocked"
+	UnblockStateUnknown   = "unknown"
 )
 
 // Run statuses
@@ -169,6 +186,7 @@ type Issue struct {
 	Stages           []IssueStage `json:"stages"`
 	CurrentStageID   int          `json:"current_stage_id"`
 	GateStatus       string       `json:"gate_status,omitempty"`
+	UnblockState     string       `json:"unblock_state,omitempty"`
 	UnblockCondition string       `json:"unblock_condition,omitempty"`
 }
 
@@ -182,6 +200,7 @@ type DeploymentGate struct {
 	ID               string    `json:"id"`
 	IssueKey         string    `json:"issue_key"`
 	Status           string    `json:"status"`
+	UnblockState     string    `json:"unblock_state"`
 	UnblockCondition string    `json:"unblock_condition"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
