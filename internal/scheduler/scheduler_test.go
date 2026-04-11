@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -582,6 +583,64 @@ func TestCaptureGitDiffInvalidDir(t *testing.T) {
 	diff := captureGitDiff("/nonexistent/path")
 	if diff != "" {
 		t.Errorf("expected empty diff for invalid dir, got %q", diff)
+	}
+}
+
+func TestResolveGateTarget(t *testing.T) {
+	tests := []struct {
+		name     string
+		issueKey string
+		mode     string
+		want     string
+	}{
+		{name: "issue run", issueKey: "SO-79", mode: "task", want: "issue:SO-79"},
+		{name: "heartbeat run", issueKey: "", mode: "heartbeat", want: "heartbeat"},
+		{name: "audit run", issueKey: "", mode: "audit", want: "audit"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveGateTarget(tt.issueKey, tt.mode); got != tt.want {
+				t.Fatalf("resolveGateTarget(%q, %q) = %q, want %q", tt.issueKey, tt.mode, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCaptureGitMetadataInvalidDir(t *testing.T) {
+	branch, sha := captureGitMetadata("/nonexistent/path")
+	if branch != "" || sha != "" {
+		t.Fatalf("captureGitMetadata invalid dir = (%q, %q), want empty values", branch, sha)
+	}
+}
+
+func TestCaptureGitMetadataInRepo(t *testing.T) {
+	repo := t.TempDir()
+	if out, err := exec.Command("git", "init", repo).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v, out=%s", err, string(out))
+	}
+	if out, err := exec.Command("git", "-C", repo, "config", "user.email", "test@example.com").CombinedOutput(); err != nil {
+		t.Fatalf("git config email: %v, out=%s", err, string(out))
+	}
+	if out, err := exec.Command("git", "-C", repo, "config", "user.name", "Test User").CombinedOutput(); err != nil {
+		t.Fatalf("git config name: %v, out=%s", err, string(out))
+	}
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("hello\n"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "add", "README.md").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v, out=%s", err, string(out))
+	}
+	if out, err := exec.Command("git", "-C", repo, "commit", "-m", "init").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v, out=%s", err, string(out))
+	}
+
+	branch, sha := captureGitMetadata(repo)
+	if branch == "" {
+		t.Fatal("expected branch from git metadata")
+	}
+	if len(sha) != 40 {
+		t.Fatalf("expected 40-char commit sha, got %q", sha)
 	}
 }
 

@@ -713,11 +713,23 @@ func TestCreateAndGetRun(t *testing.T) {
 	d.CreateIssue(i)
 
 	issueKey := "SO-1"
+	runner := "opencode"
+	model := "gpt-5.3-codex"
+	worktree := "/tmp/worktree"
+	branch := "feature/so-79"
+	commit := "0123456789abcdef0123456789abcdef01234567"
+	gateTarget := "issue:SO-1"
 	r := &models.Run{
-		AgentID:  a.ID,
-		IssueKey: &issueKey,
-		Mode:     "task",
-		Status:   models.RunStatusRunning,
+		AgentID:        a.ID,
+		IssueKey:       &issueKey,
+		Mode:           "task",
+		Status:         models.RunStatusRunning,
+		RunnerSnapshot: &runner,
+		ModelSnapshot:  &model,
+		GitWorktree:    &worktree,
+		GitBranch:      &branch,
+		GitCommitSHA:   &commit,
+		GateTarget:     &gateTarget,
 	}
 	if err := d.CreateRun(r); err != nil {
 		t.Fatalf("create run: %v", err)
@@ -732,6 +744,24 @@ func TestCreateAndGetRun(t *testing.T) {
 	}
 	if got.Status != models.RunStatusRunning {
 		t.Errorf("status = %q", got.Status)
+	}
+	if got.RunnerSnapshot == nil || *got.RunnerSnapshot != runner {
+		t.Fatalf("runner_snapshot = %v, want %q", got.RunnerSnapshot, runner)
+	}
+	if got.ModelSnapshot == nil || *got.ModelSnapshot != model {
+		t.Fatalf("model_snapshot = %v, want %q", got.ModelSnapshot, model)
+	}
+	if got.GitWorktree == nil || *got.GitWorktree != worktree {
+		t.Fatalf("git_worktree_snapshot = %v, want %q", got.GitWorktree, worktree)
+	}
+	if got.GitBranch == nil || *got.GitBranch != branch {
+		t.Fatalf("git_branch_snapshot = %v, want %q", got.GitBranch, branch)
+	}
+	if got.GitCommitSHA == nil || *got.GitCommitSHA != commit {
+		t.Fatalf("git_commit_sha_snapshot = %v, want %q", got.GitCommitSHA, commit)
+	}
+	if got.GateTarget == nil || *got.GateTarget != gateTarget {
+		t.Fatalf("gate_target_snapshot = %v, want %q", got.GateTarget, gateTarget)
 	}
 }
 

@@ -171,15 +171,30 @@ func (s *Scheduler) spawnAgent(agent *models.Agent, issueKey, mode, prompt strin
 	}
 
 	runID := uuid.New().String()
+	resolvedRunner := agent.Runner
+	if resolvedRunner == "" {
+		resolvedRunner = "claude_code"
+	}
 
 	run := &models.Run{
-		ID:        runID,
-		AgentID:   agent.ID,
-		Mode:      mode,
-		Status:    models.RunStatusRunning,
-		StartedAt: time.Now(),
-		CreatedAt: time.Now(),
+		ID:             runID,
+		AgentID:        agent.ID,
+		Mode:           mode,
+		Status:         models.RunStatusRunning,
+		RunnerSnapshot: ptrString(resolvedRunner),
+		ModelSnapshot:  ptrString(agent.Model),
+		GitWorktree:    ptrString(agent.WorkingDir),
+		StartedAt:      time.Now(),
+		CreatedAt:      time.Now(),
 	}
+	branch, commitSHA := captureGitMetadata(agent.WorkingDir)
+	if branch != "" {
+		run.GitBranch = ptrString(branch)
+	}
+	if commitSHA != "" {
+		run.GitCommitSHA = ptrString(commitSHA)
+	}
+	run.GateTarget = ptrString(resolveGateTarget(issueKey, mode))
 	if issueKey != "" {
 		run.IssueKey = &issueKey
 	}
@@ -220,7 +235,7 @@ func (s *Scheduler) spawnAgent(agent *models.Agent, issueKey, mode, prompt strin
 			"agent", agent.Name,
 			"archetype", agent.ArchetypeSlug,
 			"run_id", runID,
-			"runner", agent.Runner,
+			"runner", resolvedRunner,
 			"model", agent.Model,
 			"mode", mode,
 			"issue_key", issueKey,
@@ -232,10 +247,7 @@ func (s *Scheduler) spawnAgent(agent *models.Agent, issueKey, mode, prompt strin
 		startTime := time.Now()
 		var stdout string
 		var err error
-		runner := agent.Runner
-		if runner == "" {
-			runner = "claude_code"
-		}
+		runner := resolvedRunner
 		slog.Debug("scheduler: executing runner", "runner", runner, "run_id", runID)
 		switch runner {
 		case "codex":
@@ -1204,6 +1216,37 @@ func captureGitDiff(workingDir string) string {
 		diff = diff[:100*1024] + "\n... (truncated at 100KB)"
 	}
 	return diff
+}
+
+func resolveGateTarget(issueKey, mode string) string {
+	if issueKey != "" {
+		return "issue:" + issueKey
+	}
+	return mode
+}
+
+func captureGitMetadata(workingDir string) (branch string, commitSHA string) {
+	if workingDir == "" {
+		return "", ""
+	}
+
+	if out, err := exec.Command("git", "-C", workingDir, "rev-parse", "--abbrev-ref", "HEAD").Output(); err == nil {
+		branch = strings.TrimSpace(string(out))
+	}
+
+	if out, err := exec.Command("git", "-C", workingDir, "rev-parse", "HEAD").Output(); err == nil {
+		commitSHA = strings.TrimSpace(string(out))
+	}
+
+	return branch, commitSHA
+}
+
+func ptrString(v string) *string {
+	if v == "" {
+		return nil
+	}
+	vv := v
+	return &vv
 }
 
 // StartAPIKeyExpiryLoop runs a periodic sweep to expire stale session-scoped API keys.
