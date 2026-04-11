@@ -1858,3 +1858,93 @@ func TestActivityTimeline48hFields(t *testing.T) {
 		t.Errorf("Count = %d, want 1", e.Count)
 	}
 }
+
+func TestCreateRunPersistsExecutionMetadataSnapshotRoundtrip(t *testing.T) {
+	d := testDB(t)
+	a := makeAgent("meta-agent")
+	d.CreateAgent(a)
+
+	issueKey := "SO-42"
+	runner := "opencode"
+	model := "gpt-5.3-codex"
+	worktree := "/tmp/so-42-wt"
+	branch := "feat/so-42"
+	commit := "abcdef1234567890abcdef1234567890abcdef12"
+	gate := "issue:SO-42"
+
+	r := &models.Run{
+		AgentID:        a.ID,
+		IssueKey:       &issueKey,
+		Mode:           "task",
+		Status:         models.RunStatusRunning,
+		RunnerSnapshot: &runner,
+		ModelSnapshot:  &model,
+		GitWorktree:    &worktree,
+		GitBranch:      &branch,
+		GitCommitSHA:   &commit,
+		GateTarget:     &gate,
+	}
+	if err := d.CreateRun(r); err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	got, err := d.GetRun(r.ID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+
+	check := func(field string, got *string, want string) {
+		t.Helper()
+		if got == nil {
+			t.Fatalf("%s = nil, want %q", field, want)
+		}
+		if *got != want {
+			t.Errorf("%s = %q, want %q", field, *got, want)
+		}
+	}
+	check("runner_snapshot", got.RunnerSnapshot, runner)
+	check("model_snapshot", got.ModelSnapshot, model)
+	check("git_worktree_snapshot", got.GitWorktree, worktree)
+	check("git_branch_snapshot", got.GitBranch, branch)
+	check("git_commit_sha_snapshot", got.GitCommitSHA, commit)
+	check("gate_target_snapshot", got.GateTarget, gate)
+}
+
+func TestCreateRunSnapshotFieldsNullableForLegacyRuns(t *testing.T) {
+	d := testDB(t)
+	a := makeAgent("legacy-agent")
+	d.CreateAgent(a)
+
+	r := &models.Run{
+		AgentID: a.ID,
+		Mode:    "task",
+		Status:  models.RunStatusRunning,
+		// Deliberately omit all snapshot fields to simulate legacy run.
+	}
+	if err := d.CreateRun(r); err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	got, err := d.GetRun(r.ID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if got.RunnerSnapshot != nil {
+		t.Errorf("runner_snapshot = %q, want nil", *got.RunnerSnapshot)
+	}
+	if got.ModelSnapshot != nil {
+		t.Errorf("model_snapshot = %q, want nil", *got.ModelSnapshot)
+	}
+	if got.GitWorktree != nil {
+		t.Errorf("git_worktree_snapshot = %q, want nil", *got.GitWorktree)
+	}
+	if got.GitBranch != nil {
+		t.Errorf("git_branch_snapshot = %q, want nil", *got.GitBranch)
+	}
+	if got.GitCommitSHA != nil {
+		t.Errorf("git_commit_sha_snapshot = %q, want nil", *got.GitCommitSHA)
+	}
+	if got.GateTarget != nil {
+		t.Errorf("gate_target_snapshot = %q, want nil", *got.GateTarget)
+	}
+}
