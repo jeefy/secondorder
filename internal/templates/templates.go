@@ -21,6 +21,7 @@ func Parse() (*template.Template, error) {
 	partialFiles := []string{"partials.html"}
 	pageFiles := []string{
 		"dashboard.html",
+		"dashboard_capability_matrix.html",
 		"issues.html",
 		"issue_detail.html",
 		"agents.html",
