@@ -26,9 +26,20 @@ const (
 	TypeFeature = "feature"
 	TypeRelease = "release"
 	TypeDeploy  = "deployment"
+	// TypeDeployLegacy is kept for compatibility with older clients.
+	TypeDeployLegacy = "deploy"
 	// TypeDeployment is kept for compatibility with older references.
 	TypeDeployment = TypeDeploy
 )
+
+func IsDeploymentGateIssueType(issueType string) bool {
+	switch strings.ToLower(strings.TrimSpace(issueType)) {
+	case TypeRelease, TypeDeploy, TypeDeployLegacy:
+		return true
+	default:
+		return false
+	}
+}
 
 // Deployment gate statuses
 const (

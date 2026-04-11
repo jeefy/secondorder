@@ -133,3 +133,39 @@ func TestWorkBlockStruct(t *testing.T) {
 		t.Error("expected Stats to be nil")
 	}
 }
+
+func TestIsDeploymentGateIssueType(t *testing.T) {
+	deploymentTypes := []string{
+		TypeRelease,
+		TypeDeploy,
+		TypeDeployLegacy,
+		"release",
+		"deployment",
+		"deploy",
+		"  deployment  ",
+		"RELEASE",
+		"DEPLOY",
+		"Deployment",
+	}
+	for _, tt := range deploymentTypes {
+		if !IsDeploymentGateIssueType(tt) {
+			t.Errorf("IsDeploymentGateIssueType(%q) = false, want true", tt)
+		}
+	}
+
+	nonDeploymentTypes := []string{
+		TypeTask,
+		TypeBug,
+		TypeFeature,
+		"task",
+		"bug",
+		"feature",
+		"",
+		"unknown",
+	}
+	for _, tt := range nonDeploymentTypes {
+		if IsDeploymentGateIssueType(tt) {
+			t.Errorf("IsDeploymentGateIssueType(%q) = true, want false", tt)
+		}
+	}
+}
