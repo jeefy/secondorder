@@ -398,10 +398,12 @@ func (d *DB) CreateRun(r *models.Run) error {
 	r.StartedAt = now
 	r.CreatedAt = now
 	_, err := d.Exec(`INSERT INTO runs (id, agent_id, issue_key, mode, status, stdout, diff,
+		runner_snapshot, model_snapshot, git_worktree_snapshot, git_branch_snapshot, git_commit_sha_snapshot, gate_target_snapshot,
 		input_tokens, output_tokens, cache_read_tokens, cache_create_tokens, total_cost_usd,
 		started_at, completed_at, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
 		r.ID, r.AgentID, r.IssueKey, r.Mode, r.Status, r.Stdout, r.Diff,
+		r.RunnerSnapshot, r.ModelSnapshot, r.GitWorktree, r.GitBranch, r.GitCommitSHA, r.GateTarget,
 		r.InputTokens, r.OutputTokens, r.CacheReadTokens, r.CacheCreateTokens, r.TotalCostUSD,
 		r.StartedAt, r.CompletedAt, r.CreatedAt)
 	return err
@@ -412,11 +414,15 @@ func (d *DB) GetRun(id string) (*models.Run, error) {
 	var startedAt DBTime
 	var completedAt NullDBTime
 	var createdAt DBTime
-	err := d.QueryRow(`SELECT id, agent_id, issue_key, mode, status, stdout, diff,
+	err := d.QueryRow(`SELECT id, agent_id, issue_key, mode, status,
+		runner_snapshot, model_snapshot, git_worktree_snapshot, git_branch_snapshot, git_commit_sha_snapshot, gate_target_snapshot,
+		stdout, diff,
 		input_tokens, output_tokens, cache_read_tokens, cache_create_tokens, total_cost_usd,
 		started_at, completed_at, created_at
 		FROM runs WHERE id=?`, id).Scan(
-		&r.ID, &r.AgentID, &r.IssueKey, &r.Mode, &r.Status, &r.Stdout, &r.Diff,
+		&r.ID, &r.AgentID, &r.IssueKey, &r.Mode, &r.Status,
+		&r.RunnerSnapshot, &r.ModelSnapshot, &r.GitWorktree, &r.GitBranch, &r.GitCommitSHA, &r.GateTarget,
+		&r.Stdout, &r.Diff,
 		&r.InputTokens, &r.OutputTokens, &r.CacheReadTokens, &r.CacheCreateTokens, &r.TotalCostUSD,
 		&startedAt, &completedAt, &createdAt)
 	if err != nil {
@@ -431,7 +437,9 @@ func (d *DB) GetRun(id string) (*models.Run, error) {
 }
 
 func (d *DB) ListRunsForAgent(agentID string, limit int) ([]models.Run, error) {
-	query := `SELECT id, agent_id, issue_key, mode, status, stdout, diff,
+	query := `SELECT id, agent_id, issue_key, mode, status,
+		runner_snapshot, model_snapshot, git_worktree_snapshot, git_branch_snapshot, git_commit_sha_snapshot, gate_target_snapshot,
+		stdout, diff,
 		input_tokens, output_tokens, cache_read_tokens, cache_create_tokens, total_cost_usd,
 		started_at, completed_at, created_at
 		FROM runs WHERE agent_id=? ORDER BY created_at DESC`
@@ -451,7 +459,9 @@ func (d *DB) ListRunsForAgent(agentID string, limit int) ([]models.Run, error) {
 }
 
 func (d *DB) ListRunsForIssue(issueKey string) ([]models.Run, error) {
-	rows, err := d.Query(`SELECT id, agent_id, issue_key, mode, status, stdout, diff,
+	rows, err := d.Query(`SELECT id, agent_id, issue_key, mode, status,
+		runner_snapshot, model_snapshot, git_worktree_snapshot, git_branch_snapshot, git_commit_sha_snapshot, gate_target_snapshot,
+		stdout, diff,
 		input_tokens, output_tokens, cache_read_tokens, cache_create_tokens, total_cost_usd,
 		started_at, completed_at, created_at
 		FROM runs WHERE issue_key=? ORDER BY created_at DESC`, issueKey)
@@ -522,7 +532,9 @@ func scanRuns(rows *sql.Rows) ([]models.Run, error) {
 		var startedAt DBTime
 		var completedAt NullDBTime
 		var createdAt DBTime
-		if err := rows.Scan(&r.ID, &r.AgentID, &r.IssueKey, &r.Mode, &r.Status, &r.Stdout, &r.Diff,
+		if err := rows.Scan(&r.ID, &r.AgentID, &r.IssueKey, &r.Mode, &r.Status,
+			&r.RunnerSnapshot, &r.ModelSnapshot, &r.GitWorktree, &r.GitBranch, &r.GitCommitSHA, &r.GateTarget,
+			&r.Stdout, &r.Diff,
 			&r.InputTokens, &r.OutputTokens, &r.CacheReadTokens, &r.CacheCreateTokens, &r.TotalCostUSD,
 			&startedAt, &completedAt, &createdAt); err != nil {
 			return nil, err
