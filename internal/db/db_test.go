@@ -576,6 +576,27 @@ func TestDeploymentGateCanonicalCreationForDeploymentIssue(t *testing.T) {
 	}
 }
 
+func TestDeploymentGateCanonicalCreationForLegacyDeployIssueType(t *testing.T) {
+	d := testDB(t)
+	i := makeIssue("SO-704")
+	i.Type = "deploy"
+	i.Status = models.StatusBlocked
+	if err := d.CreateIssue(i); err != nil {
+		t.Fatalf("create legacy deploy issue: %v", err)
+	}
+
+	gate, err := d.GetDeploymentGateByIssueKey(i.Key)
+	if err != nil {
+		t.Fatalf("get gate: %v", err)
+	}
+	if gate.Status != models.GateStatusBlocked {
+		t.Fatalf("gate status = %q, want %q", gate.Status, models.GateStatusBlocked)
+	}
+	if gate.UnblockState != models.UnblockStateBlocked {
+		t.Fatalf("gate unblock_state = %q, want %q", gate.UnblockState, models.UnblockStateBlocked)
+	}
+}
+
 func TestDeploymentGateRecheckAppendsEventsOnSingleGate(t *testing.T) {
 	d := testDB(t)
 	i := makeIssue("SO-701")

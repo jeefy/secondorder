@@ -155,13 +155,13 @@ func (d *DB) CountAgents() (int, int, error) {
 const issueCols = `i.id, i.key, i.title, i.description, i.status, i.type, i.priority, i.assignee_agent_id,
 	i.parent_issue_key, i.work_block_id, i.started_at, i.completed_at, i.created_at, i.updated_at,
 	COALESCE(a.name, ''), COALESCE(a.slug, ''), i.stages, i.current_stage_id,
-	COALESCE((SELECT dg.status FROM deployment_gates dg WHERE dg.issue_key = i.key LIMIT 1), ''),
+	COALESCE((SELECT dg.status FROM deployment_gates dg WHERE dg.issue_key = i.key ORDER BY dg.updated_at DESC, dg.created_at DESC, dg.id DESC LIMIT 1), ''),
 	COALESCE((SELECT CASE
 		WHEN dg.status = 'blocked' THEN 'blocked'
 		WHEN dg.status IN ('open','passed') THEN 'unblocked'
 		ELSE 'unknown'
-	END FROM deployment_gates dg WHERE dg.issue_key = i.key LIMIT 1), ''),
-	COALESCE((SELECT dg.unblock_condition FROM deployment_gates dg WHERE dg.issue_key = i.key LIMIT 1), '')`
+	END FROM deployment_gates dg WHERE dg.issue_key = i.key ORDER BY dg.updated_at DESC, dg.created_at DESC, dg.id DESC LIMIT 1), ''),
+	COALESCE((SELECT dg.unblock_condition FROM deployment_gates dg WHERE dg.issue_key = i.key ORDER BY dg.updated_at DESC, dg.created_at DESC, dg.id DESC LIMIT 1), '')`
 
 func scanIssue(scanner interface {
 	Scan(dest ...any) error
@@ -318,7 +318,7 @@ func (d *DB) UpdateIssue(i *models.Issue) error {
 }
 
 func isDeploymentGateIssueType(issueType string) bool {
-	return issueType == models.TypeRelease || issueType == models.TypeDeploy
+	return models.IsDeploymentGateIssueType(issueType)
 }
 
 func deriveGateStatusFromIssueStatus(issueStatus string) string {
@@ -396,7 +396,9 @@ func (d *DB) EnsureCanonicalDeploymentGate(issueKey, issueType, issueStatus stri
 func (d *DB) GetDeploymentGateByIssueKey(issueKey string) (*models.DeploymentGate, error) {
 	g := &models.DeploymentGate{}
 	err := d.QueryRow(`SELECT id, issue_key, status, unblock_condition, created_at, updated_at
-		FROM deployment_gates WHERE issue_key = ?`, issueKey).Scan(
+		FROM deployment_gates WHERE issue_key = ?
+		ORDER BY updated_at DESC, created_at DESC, id DESC
+		LIMIT 1`, issueKey).Scan(
 		&g.ID, &g.IssueKey, &g.Status, &g.UnblockCondition, &g.CreatedAt, &g.UpdatedAt,
 	)
 	if err != nil {
