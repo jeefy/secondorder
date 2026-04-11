@@ -84,11 +84,13 @@ func (a *API) GetIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	comments, _ := a.db.ListComments(key)
 	children, _ := a.db.GetChildIssues(key)
+	runs, _ := a.db.ListRunsForIssue(key)
 
 	jsonOK(w, map[string]any{
 		"issue":    issue,
 		"comments": comments,
 		"children": children,
+		"runs":     runs,
 	})
 }
 

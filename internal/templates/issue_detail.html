@@ -267,6 +267,9 @@
                 <span class="{{runStatusColor .Status}} inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium shrink-0">{{.Status}}</span>
                 <a href="/runs/{{.ID}}" class="font-mono text-xs text-ink3 hover:text-ac-t transition-colors" onclick="event.stopPropagation()">{{truncate .ID 8}}</a>
                 <span class="text-xs text-ink3/50">{{.Mode}}</span>
+                {{if .RunnerSnapshot}}<span class="text-[11px] text-ink3/50 font-mono">{{deref .RunnerSnapshot}}</span>{{end}}
+                {{if .ModelSnapshot}}<span class="text-[11px] text-ink3/50 font-mono">{{deref .ModelSnapshot}}</span>{{end}}
+                {{if .GateTarget}}<span class="text-[11px] text-ink3/50 font-mono">{{deref .GateTarget}}</span>{{end}}
                 <span class="flex-1"></span>
                 <span class="text-xs text-ink3/50 tabular-nums">{{formatCost .TotalCostUSD}}</span>
                 <span class="text-[11px] text-ink3/40 tabular-nums">{{timeAgo .StartedAt}}</span>

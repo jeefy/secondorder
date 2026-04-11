@@ -257,6 +257,12 @@ type Run struct {
 	IssueKey          *string    `json:"issue_key"`
 	Mode              string     `json:"mode"`
 	Status            string     `json:"status"`
+	RunnerSnapshot    *string    `json:"runner_snapshot,omitempty"`
+	ModelSnapshot     *string    `json:"model_snapshot,omitempty"`
+	GitWorktree       *string    `json:"git_worktree_snapshot,omitempty"`
+	GitBranch         *string    `json:"git_branch_snapshot,omitempty"`
+	GitCommitSHA      *string    `json:"git_commit_sha_snapshot,omitempty"`
+	GateTarget        *string    `json:"gate_target_snapshot,omitempty"`
 	Stdout            string     `json:"stdout"`
 	Diff              string     `json:"diff"`
 	InputTokens       int64      `json:"input_tokens"`

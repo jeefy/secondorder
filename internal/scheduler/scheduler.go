@@ -170,15 +170,29 @@ func (s *Scheduler) spawnAgent(agent *models.Agent, issueKey, mode, prompt strin
 		agent.Model = s.modelOverride
 	}
 
+	runner := agent.Runner
+	if runner == "" {
+		runner = models.RunnerClaudeCode
+	}
+
+	gateTarget := gateTargetSnapshot(mode, issueKey)
+	gitWorktree, gitBranch, gitCommitSHA := captureGitSnapshot(agent.WorkingDir)
+
 	runID := uuid.New().String()
 
 	run := &models.Run{
-		ID:        runID,
-		AgentID:   agent.ID,
-		Mode:      mode,
-		Status:    models.RunStatusRunning,
-		StartedAt: time.Now(),
-		CreatedAt: time.Now(),
+		ID:             runID,
+		AgentID:        agent.ID,
+		Mode:           mode,
+		Status:         models.RunStatusRunning,
+		RunnerSnapshot: strPtr(runner),
+		ModelSnapshot:  strPtr(agent.Model),
+		GitWorktree:    gitWorktree,
+		GitBranch:      gitBranch,
+		GitCommitSHA:   gitCommitSHA,
+		GateTarget:     gateTarget,
+		StartedAt:      time.Now(),
+		CreatedAt:      time.Now(),
 	}
 	if issueKey != "" {
 		run.IssueKey = &issueKey
@@ -232,10 +246,6 @@ func (s *Scheduler) spawnAgent(agent *models.Agent, issueKey, mode, prompt strin
 		startTime := time.Now()
 		var stdout string
 		var err error
-		runner := agent.Runner
-		if runner == "" {
-			runner = "claude_code"
-		}
 		slog.Debug("scheduler: executing runner", "runner", runner, "run_id", runID)
 		switch runner {
 		case "codex":
@@ -1236,6 +1246,61 @@ func captureGitDiff(workingDir string) string {
 		diff = diff[:100*1024] + "\n... (truncated at 100KB)"
 	}
 	return diff
+}
+
+func strPtr(v string) *string {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	return &v
+}
+
+func gateTargetSnapshot(mode, issueKey string) *string {
+	switch {
+	case issueKey != "":
+		v := "issue:" + issueKey
+		return &v
+	case mode != "":
+		v := mode
+		return &v
+	default:
+		return nil
+	}
+}
+
+func captureGitSnapshot(workingDir string) (worktree, branch, commit *string) {
+	trimmedDir := strings.TrimSpace(workingDir)
+	if trimmedDir == "" {
+		return nil, nil, nil
+	}
+
+	worktree = &trimmedDir
+
+	headCmd := exec.Command("git", "rev-parse", "HEAD")
+	headCmd.Dir = workingDir
+	headOut, err := headCmd.Output()
+	if err != nil {
+		return worktree, nil, nil
+	}
+
+	sha := strings.TrimSpace(string(headOut))
+	if sha != "" {
+		commit = &sha
+	}
+
+	branchCmd := exec.Command("git", "branch", "--show-current")
+	branchCmd.Dir = workingDir
+	branchOut, err := branchCmd.Output()
+	if err != nil {
+		return worktree, nil, commit
+	}
+
+	branchName := strings.TrimSpace(string(branchOut))
+	if branchName != "" {
+		branch = &branchName
+	}
+
+	return worktree, branch, commit
 }
 
 // StartCronLoop runs a periodic check for active cron jobs and dispatches due ones.

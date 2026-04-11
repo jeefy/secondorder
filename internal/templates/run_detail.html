@@ -54,6 +54,21 @@
       </div>
     </div>
 
+    <!-- Execution Metadata -->
+    <div class="mb-6">
+      <h3 class="text-[13px] font-medium text-ink2 mb-2">Execution Metadata</h3>
+      <div class="bg-card border border-bd rounded-lg p-4">
+        <div class="grid sm:grid-cols-2 gap-3 text-xs">
+          <div class="flex items-center justify-between gap-3"><span class="text-ink3/50">Runner</span><span class="font-mono text-ink2">{{if .Run.RunnerSnapshot}}{{deref .Run.RunnerSnapshot}}{{else}}&mdash;{{end}}</span></div>
+          <div class="flex items-center justify-between gap-3"><span class="text-ink3/50">Model</span><span class="font-mono text-ink2">{{if .Run.ModelSnapshot}}{{deref .Run.ModelSnapshot}}{{else}}&mdash;{{end}}</span></div>
+          <div class="flex items-center justify-between gap-3"><span class="text-ink3/50">Gate Target</span><span class="font-mono text-ink2">{{if .Run.GateTarget}}{{deref .Run.GateTarget}}{{else}}&mdash;{{end}}</span></div>
+          <div class="flex items-center justify-between gap-3"><span class="text-ink3/50">Worktree</span><span class="font-mono text-ink2 truncate" title="{{if .Run.GitWorktree}}{{deref .Run.GitWorktree}}{{end}}">{{if .Run.GitWorktree}}{{deref .Run.GitWorktree}}{{else}}&mdash;{{end}}</span></div>
+          <div class="flex items-center justify-between gap-3"><span class="text-ink3/50">Branch</span><span class="font-mono text-ink2">{{if .Run.GitBranch}}{{deref .Run.GitBranch}}{{else}}&mdash;{{end}}</span></div>
+          <div class="flex items-center justify-between gap-3"><span class="text-ink3/50">Commit</span><span class="font-mono text-ink2">{{if .Run.GitCommitSHA}}{{truncate (deref .Run.GitCommitSHA) 12}}{{else}}&mdash;{{end}}</span></div>
+        </div>
+      </div>
+    </div>
+
     <!-- Live Stdout -->
     <div class="mb-6">
       <div class="flex items-center justify-between mb-2">

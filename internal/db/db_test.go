@@ -607,6 +607,64 @@ func TestCreateAndGetRun(t *testing.T) {
 	if got.Status != models.RunStatusRunning {
 		t.Errorf("status = %q", got.Status)
 	}
+	if got.RunnerSnapshot != nil {
+		t.Fatalf("runner_snapshot for legacy create = %q, want nil", *got.RunnerSnapshot)
+	}
+}
+
+func TestCreateRun_PersistsExecutionMetadata(t *testing.T) {
+	d := testDB(t)
+	a := makeAgent("meta-run-agent")
+	d.CreateAgent(a)
+	i := makeIssue("SO-2")
+	d.CreateIssue(i)
+
+	issueKey := "SO-2"
+	runner := "codex"
+	model := "gpt-5.4-thinking"
+	worktree := "/tmp/secondorder"
+	branch := "feature/SO-65"
+	commit := "0123456789abcdef0123456789abcdef01234567"
+	gateTarget := "issue:SO-2"
+
+	r := &models.Run{
+		AgentID:        a.ID,
+		IssueKey:       &issueKey,
+		Mode:           "task",
+		Status:         models.RunStatusRunning,
+		RunnerSnapshot: &runner,
+		ModelSnapshot:  &model,
+		GitWorktree:    &worktree,
+		GitBranch:      &branch,
+		GitCommitSHA:   &commit,
+		GateTarget:     &gateTarget,
+	}
+	if err := d.CreateRun(r); err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	got, err := d.GetRun(r.ID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if got.RunnerSnapshot == nil || *got.RunnerSnapshot != runner {
+		t.Fatalf("runner_snapshot = %v, want %q", got.RunnerSnapshot, runner)
+	}
+	if got.ModelSnapshot == nil || *got.ModelSnapshot != model {
+		t.Fatalf("model_snapshot = %v, want %q", got.ModelSnapshot, model)
+	}
+	if got.GitWorktree == nil || *got.GitWorktree != worktree {
+		t.Fatalf("git_worktree_snapshot = %v, want %q", got.GitWorktree, worktree)
+	}
+	if got.GitBranch == nil || *got.GitBranch != branch {
+		t.Fatalf("git_branch_snapshot = %v, want %q", got.GitBranch, branch)
+	}
+	if got.GitCommitSHA == nil || *got.GitCommitSHA != commit {
+		t.Fatalf("git_commit_sha_snapshot = %v, want %q", got.GitCommitSHA, commit)
+	}
+	if got.GateTarget == nil || *got.GateTarget != gateTarget {
+		t.Fatalf("gate_target_snapshot = %v, want %q", got.GateTarget, gateTarget)
+	}
 }
 
 func TestCompleteRun(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -1604,6 +1605,81 @@ func TestCheckoutIssue_CEOCanCheckoutAssignedToOther(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestGetIssue_IncludesRunExecutionMetadata(t *testing.T) {
+	d := testDB(t)
+	hub := NewSSEHub()
+	defer hub.Close()
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{}, nil)
+
+	owner, ownerKey := createAgentWithKey(t, d, "Owner", "owner-meta", "backend")
+	issue := &models.Issue{Key: "SO-600", Title: "Metadata", Status: "todo", AssigneeAgentID: &owner.ID}
+	if err := d.CreateIssue(issue); err != nil {
+		t.Fatalf("create issue: %v", err)
+	}
+
+	runner := "codex"
+	model := "gpt-5.4-thinking"
+	worktree := "/tmp/secondorder"
+	branch := "feature/SO-65"
+	commit := "0123456789abcdef0123456789abcdef01234567"
+	gateTarget := "issue:SO-600"
+	run := &models.Run{
+		ID:             uuid.NewString(),
+		AgentID:        owner.ID,
+		IssueKey:       ptr("SO-600"),
+		Mode:           "task",
+		Status:         models.RunStatusCompleted,
+		RunnerSnapshot: &runner,
+		ModelSnapshot:  &model,
+		GitWorktree:    &worktree,
+		GitBranch:      &branch,
+		GitCommitSHA:   &commit,
+		GateTarget:     &gateTarget,
+	}
+	if err := d.CreateRun(run); err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/issues/SO-600", nil)
+	req.Header.Set("Authorization", "Bearer "+ownerKey)
+	req.SetPathValue("key", "SO-600")
+	w := httptest.NewRecorder()
+	api.Auth(api.GetIssue)(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Runs []models.Run `json:"runs"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(resp.Runs) != 1 {
+		t.Fatalf("runs count = %d, want 1", len(resp.Runs))
+	}
+	got := resp.Runs[0]
+	if got.RunnerSnapshot == nil || *got.RunnerSnapshot != runner {
+		t.Fatalf("runner_snapshot = %v, want %q", got.RunnerSnapshot, runner)
+	}
+	if got.ModelSnapshot == nil || *got.ModelSnapshot != model {
+		t.Fatalf("model_snapshot = %v, want %q", got.ModelSnapshot, model)
+	}
+	if got.GitWorktree == nil || *got.GitWorktree != worktree {
+		t.Fatalf("git_worktree_snapshot = %v, want %q", got.GitWorktree, worktree)
+	}
+	if got.GitBranch == nil || *got.GitBranch != branch {
+		t.Fatalf("git_branch_snapshot = %v, want %q", got.GitBranch, branch)
+	}
+	if got.GitCommitSHA == nil || *got.GitCommitSHA != commit {
+		t.Fatalf("git_commit_sha_snapshot = %v, want %q", got.GitCommitSHA, commit)
+	}
+	if got.GateTarget == nil || *got.GateTarget != gateTarget {
+		t.Fatalf("gate_target_snapshot = %v, want %q", got.GateTarget, gateTarget)
 	}
 }
 

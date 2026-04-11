@@ -13,6 +13,29 @@ import (
 	"github.com/msoedov/secondorder/internal/models"
 )
 
+func writeGitStub(t *testing.T, dir string) {
+	t.Helper()
+	content := `#!/bin/sh
+if [ "$1" = "rev-parse" ] && [ "$2" = "HEAD" ]; then
+  echo "0123456789abcdef0123456789abcdef01234567"
+  exit 0
+fi
+if [ "$1" = "branch" ] && [ "$2" = "--show-current" ]; then
+  echo "feature/SO-65"
+  exit 0
+fi
+if [ "$1" = "diff" ] && [ "$2" = "HEAD" ]; then
+  echo "diff --git a/x b/x"
+  exit 0
+fi
+echo "unsupported git args: $@" >&2
+exit 1
+`
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(content), 0755); err != nil {
+		t.Fatalf("write git stub: %v", err)
+	}
+}
+
 // makeStub writes a shell script to dir/name that echoes its args and selected env vars.
 func makeStub(t *testing.T, dir, name string) {
 	t.Helper()
@@ -583,6 +606,60 @@ func TestCaptureGitDiffInvalidDir(t *testing.T) {
 	diff := captureGitDiff("/nonexistent/path")
 	if diff != "" {
 		t.Errorf("expected empty diff for invalid dir, got %q", diff)
+	}
+}
+
+func TestSpawnAgent_CapturesExecutionMetadata(t *testing.T) {
+	d := testDB(t)
+	s := New(d, 9001)
+
+	workDir := t.TempDir()
+	binDir := t.TempDir()
+	makeStub(t, binDir, "claude")
+	writeGitStub(t, binDir)
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+	agent := &models.Agent{
+		Name: "Meta Agent", Slug: "meta-agent", ArchetypeSlug: "worker",
+		Runner: "claude_code", Model: "sonnet",
+		WorkingDir: workDir, MaxTurns: 5, TimeoutSec: 2, Active: true,
+	}
+	if err := d.CreateAgent(agent); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+
+	issue := &models.Issue{Key: "SO-700", Title: "Metadata test", Status: "todo", AssigneeAgentID: &agent.ID}
+	if err := d.CreateIssue(issue); err != nil {
+		t.Fatalf("create issue: %v", err)
+	}
+
+	runID := s.spawnAgent(agent, issue.Key, "task", "do work")
+	if runID == "" {
+		t.Fatal("spawnAgent returned empty run ID")
+	}
+	s.wg.Wait()
+
+	run, err := d.GetRun(runID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if run.RunnerSnapshot == nil || *run.RunnerSnapshot != "claude_code" {
+		t.Fatalf("runner_snapshot = %v, want claude_code", run.RunnerSnapshot)
+	}
+	if run.ModelSnapshot == nil || *run.ModelSnapshot != "sonnet" {
+		t.Fatalf("model_snapshot = %v, want sonnet", run.ModelSnapshot)
+	}
+	if run.GitWorktree == nil || *run.GitWorktree != workDir {
+		t.Fatalf("git_worktree_snapshot = %v, want %q", run.GitWorktree, workDir)
+	}
+	if run.GitBranch == nil || *run.GitBranch != "feature/SO-65" {
+		t.Fatalf("git_branch_snapshot = %v, want feature/SO-65", run.GitBranch)
+	}
+	if run.GitCommitSHA == nil || *run.GitCommitSHA != "0123456789abcdef0123456789abcdef01234567" {
+		t.Fatalf("git_commit_sha_snapshot = %v, want stub sha", run.GitCommitSHA)
+	}
+	if run.GateTarget == nil || *run.GateTarget != "issue:SO-700" {
+		t.Fatalf("gate_target_snapshot = %v, want issue:SO-700", run.GateTarget)
 	}
 }
 
