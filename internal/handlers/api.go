@@ -82,14 +82,16 @@ func (a *API) GetIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	comments, _ := a.db.ListComments(key)
 	children, _ := a.db.GetChildIssues(key)
+	runs, _ := a.db.ListRunsForIssue(key)
 
 	resp := map[string]any{
 		"issue":    issue,
 		"comments": comments,
 		"children": children,
+		"runs":     runs,
 	}
 
-	if issue.Type == models.TypeRelease || issue.Type == models.TypeDeploy || issue.Type == models.TypeDeployment {
+	if models.IsDeploymentGateIssueType(issue.Type) {
 		if err := a.db.EnsureCanonicalDeploymentGate(issue.Key, issue.Type, issue.Status); err == nil {
 			if gate, err := a.db.GetDeploymentGateByIssueKey(issue.Key); err == nil {
 				resp["deployment_gate"] = gate
