@@ -119,7 +119,7 @@ func TestListWikiPages(t *testing.T) {
 }
 
 func TestCreateWikiPageSuccess(t *testing.T) {
-	_, api, _, apiKey := setupWikiTest(t)
+	d, api, agent, apiKey := setupWikiTest(t)
 
 	body := map[string]string{
 		"title":   "New Page",
@@ -149,24 +149,106 @@ func TestCreateWikiPageSuccess(t *testing.T) {
 	if result.ID == "" {
 		t.Error("expected ID to be set")
 	}
+
+	// Verify agent identity
+	if result.CreatedByAgentID == nil || *result.CreatedByAgentID != agent.ID {
+		t.Errorf("CreatedByAgentID = %v, want %s", result.CreatedByAgentID, agent.ID)
+	}
+
+	// Double check in DB
+	dbPage, _ := d.GetWikiPageBySlug("new-page")
+	if dbPage.CreatedByAgentID == nil || *dbPage.CreatedByAgentID != agent.ID {
+		t.Errorf("DB CreatedByAgentID = %v, want %s", dbPage.CreatedByAgentID, agent.ID)
+	}
 }
 
-func TestCreateWikiPageNoAuth(t *testing.T) {
+func TestWikiHandlersNoAuth(t *testing.T) {
 	_, api, _, _ := setupWikiTest(t)
 
+	endpoints := []struct {
+		method string
+		url    string
+		slug   string
+		h      http.HandlerFunc
+	}{
+		{"GET", "/api/v1/wiki", "", api.ListWikiPages},
+		{"POST", "/api/v1/wiki", "", api.CreateWikiPage},
+		{"GET", "/api/v1/wiki/slug", "slug", api.GetWikiPage},
+		{"PATCH", "/api/v1/wiki/slug", "slug", api.UpdateWikiPage},
+		{"DELETE", "/api/v1/wiki/slug", "slug", api.DeleteWikiPage},
+		{"GET", "/api/v1/wiki/search", "", api.SearchWikiPages},
+	}
+
+	for _, tt := range endpoints {
+		t.Run(tt.method+" "+tt.url, func(t *testing.T) {
+			// 1. Missing header
+			req := httptest.NewRequest(tt.method, tt.url, nil)
+			if tt.slug != "" {
+				req.SetPathValue("slug", tt.slug)
+			}
+			w := httptest.NewRecorder()
+			http.HandlerFunc(api.Auth(tt.h))(w, req)
+			if w.Code != http.StatusUnauthorized {
+				t.Errorf("missing header: status = %d, want 401", w.Code)
+			}
+
+			// 2. Invalid token
+			req = httptest.NewRequest(tt.method, tt.url, nil)
+			if tt.slug != "" {
+				req.SetPathValue("slug", tt.slug)
+			}
+			req.Header.Set("Authorization", "Bearer invalid-token")
+			w = httptest.NewRecorder()
+			http.HandlerFunc(api.Auth(tt.h))(w, req)
+			if w.Code != http.StatusUnauthorized {
+				t.Errorf("invalid token: status = %d, want 401", w.Code)
+			}
+		})
+	}
+}
+
+func TestUpdateWikiPageAgentIdentity(t *testing.T) {
+	d, api, agent1, _ := setupWikiTest(t)
+
+	// Create a second agent
+	agent2 := createTestWikiAgent(t, d, "wiki-agent-2")
+	apiKey2 := createTestWikiAPIKey(t, d, agent2)
+
+	// Create page with agent 1
+	page := &models.WikiPage{
+		Slug:             "identity-test",
+		Title:            "Agent 1 Title",
+		Content:          "Agent 1 Content",
+		CreatedByAgentID: &agent1.ID,
+		UpdatedByAgentID: &agent1.ID,
+	}
+	d.CreateWikiPage(page)
+
+	// Update with agent 2
 	body := map[string]string{
-		"title": "No Auth",
+		"title": "Agent 2 Update",
 	}
 	bodyBytes, _ := json.Marshal(body)
 
-	req := httptest.NewRequest("POST", "/api/v1/wiki", bytes.NewReader(bodyBytes))
+	req := httptest.NewRequest("PATCH", "/api/v1/wiki/identity-test", bytes.NewReader(bodyBytes))
+	req.Header.Set("Authorization", "Bearer "+apiKey2)
 	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("slug", "identity-test")
 	w := httptest.NewRecorder()
 
-	http.HandlerFunc(api.Auth(api.CreateWikiPage))(w, req)
+	http.HandlerFunc(api.Auth(api.UpdateWikiPage))(w, req)
 
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body=%s", w.Code, w.Body.String())
+	}
+
+	// Verify identity in DB
+	dbPage, _ := d.GetWikiPageBySlug("identity-test")
+	if dbPage.CreatedByAgentID == nil || *dbPage.CreatedByAgentID != agent1.ID {
+		t.Errorf("CreatedByAgentID should still be %s, got %v", agent1.ID, dbPage.CreatedByAgentID)
+	}
+	if dbPage.UpdatedByAgentID == nil || *dbPage.UpdatedByAgentID != agent2.ID {
+		t.Errorf("UpdatedByAgentID should be %s, got %v", agent2.ID, dbPage.UpdatedByAgentID)
 	}
 }
 
