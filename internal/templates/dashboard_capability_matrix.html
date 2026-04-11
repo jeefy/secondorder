@@ -6,18 +6,29 @@
          aria-busy="false">
   <div class="flex items-center justify-between mb-3">
     <h2 class="text-[13px] font-medium text-ink2">Verified Capability Matrix</h2>
-    <span class="text-xs text-ink3/50">Current run context</span>
+    <div class="flex items-center gap-2 text-xs text-ink3/50">
+      <span>Current run context</span>
+      <span class="htmx-indicator inline-flex items-center gap-1 text-blue-400" aria-live="polite">
+        <span class="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></span>Refreshing
+      </span>
+    </div>
   </div>
 
   <div class="mb-3 grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
     <div class="bg-card border border-bd rounded-lg px-3 py-2 text-ink3/70">
-      <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 mr-1.5"></span>Verified
+      <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 mr-1.5"></span>
+      <span class="font-medium text-ink2">Verified</span>
+      <div class="mt-1 text-[10px] text-ink3/50">{{index .CapabilityStatusDescriptions "verified"}}</div>
     </div>
     <div class="bg-card border border-bd rounded-lg px-3 py-2 text-ink3/70">
-      <span class="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1.5"></span>Unknown
+      <span class="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1.5"></span>
+      <span class="font-medium text-ink2">Unknown</span>
+      <div class="mt-1 text-[10px] text-ink3/50">{{index .CapabilityStatusDescriptions "unknown"}}</div>
     </div>
     <div class="bg-card border border-bd rounded-lg px-3 py-2 text-ink3/70">
-      <span class="inline-block w-2 h-2 rounded-full bg-zinc-500 mr-1.5"></span>Unavailable
+      <span class="inline-block w-2 h-2 rounded-full bg-zinc-500 mr-1.5"></span>
+      <span class="font-medium text-ink2">Unavailable</span>
+      <div class="mt-1 text-[10px] text-ink3/50">{{index .CapabilityStatusDescriptions "unavailable"}}</div>
     </div>
   </div>
 

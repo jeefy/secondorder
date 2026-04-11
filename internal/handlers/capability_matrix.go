@@ -111,12 +111,16 @@ func (a *API) AgentCapabilityMatrix(w http.ResponseWriter, _ *http.Request) {
 
 func (a *API) AgentCapabilityMatrixContract(w http.ResponseWriter, _ *http.Request) {
 	jsonOK(w, map[string]any{
-		"status_values": map[string]string{
-			"verified":    "Backend-attested fact in current run context",
-			"unknown":     "Data source exists but value cannot be verified now",
-			"unavailable": "Capability or credential is configured as absent or inaccessible",
-		},
+		"status_values": capabilityStatusDescriptions(),
 	})
+}
+
+func capabilityStatusDescriptions() map[string]string {
+	return map[string]string{
+		"verified":    "Backend-attested fact in current run context",
+		"unknown":     "Data source exists but value cannot be verified now",
+		"unavailable": "Capability or credential is configured as absent or inaccessible",
+	}
 }
 
 func buildAgentCapabilityRow(ag models.Agent, checkedAt string) agentCapabilityMatrixRow {

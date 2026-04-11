@@ -121,6 +121,8 @@ func (u *UI) DashboardCapabilityMatrix(w http.ResponseWriter, r *http.Request) {
 }
 
 func (u *UI) attachCapabilityMatrixData(data map[string]any, agents []models.Agent, agentsErr error) {
+	data["CapabilityStatusDescriptions"] = capabilityStatusDescriptions()
+
 	if agentsErr != nil {
 		data["CapabilityMatrixError"] = "Unable to load verified capability data right now."
 		return
