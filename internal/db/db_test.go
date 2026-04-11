@@ -543,6 +543,132 @@ func TestGetChildIssues(t *testing.T) {
 	}
 }
 
+func TestDeploymentGateCanonicalCreationForDeploymentIssue(t *testing.T) {
+	d := testDB(t)
+	i := makeIssue("SO-700")
+	i.Type = models.TypeDeploy
+	i.Status = models.StatusBlocked
+	if err := d.CreateIssue(i); err != nil {
+		t.Fatalf("create deployment issue: %v", err)
+	}
+
+	gate, err := d.GetDeploymentGateByIssueKey(i.Key)
+	if err != nil {
+		t.Fatalf("get gate: %v", err)
+	}
+	if gate.Status != "blocked" {
+		t.Fatalf("gate status = %q, want blocked", gate.Status)
+	}
+	if gate.UnblockCondition == "" {
+		t.Fatal("expected non-empty unblock condition for blocked gate")
+	}
+
+	events, err := d.ListDeploymentGateEvents(gate.ID)
+	if err != nil {
+		t.Fatalf("list gate events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("event count = %d, want 1", len(events))
+	}
+}
+
+func TestDeploymentGateRecheckAppendsEventsOnSingleGate(t *testing.T) {
+	d := testDB(t)
+	i := makeIssue("SO-701")
+	i.Type = models.TypeRelease
+	if err := d.CreateIssue(i); err != nil {
+		t.Fatalf("create release issue: %v", err)
+	}
+
+	initialGate, err := d.GetDeploymentGateByIssueKey(i.Key)
+	if err != nil {
+		t.Fatalf("get initial gate: %v", err)
+	}
+
+	if err := d.AppendDeploymentGateStatus(i.Key, i.Type, models.StatusBlocked, "waiting on migration", "recheck"); err != nil {
+		t.Fatalf("append blocked recheck: %v", err)
+	}
+	if err := d.AppendDeploymentGateStatus(i.Key, i.Type, models.StatusInProgress, "", "recheck"); err != nil {
+		t.Fatalf("append open recheck: %v", err)
+	}
+
+	gate, err := d.GetDeploymentGateByIssueKey(i.Key)
+	if err != nil {
+		t.Fatalf("get gate after rechecks: %v", err)
+	}
+	if gate.ID != initialGate.ID {
+		t.Fatalf("gate id changed across rechecks: %s -> %s", initialGate.ID, gate.ID)
+	}
+	if gate.Status != "open" {
+		t.Fatalf("gate status = %q, want open", gate.Status)
+	}
+
+	events, err := d.ListDeploymentGateEvents(gate.ID)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 3 {
+		t.Fatalf("event count = %d, want 3", len(events))
+	}
+}
+
+func TestDeploymentGateLegacyCompatibilityBackfillsHistory(t *testing.T) {
+	d := testDB(t)
+	i := makeIssue("SO-702")
+	i.Type = models.TypeDeploy
+	if err := d.CreateIssue(i); err != nil {
+		t.Fatalf("create deployment issue: %v", err)
+	}
+
+	gate, err := d.GetDeploymentGateByIssueKey(i.Key)
+	if err != nil {
+		t.Fatalf("get gate: %v", err)
+	}
+
+	if _, err := d.Exec(`DELETE FROM deployment_gate_events WHERE gate_id = ?`, gate.ID); err != nil {
+		t.Fatalf("delete gate events to simulate legacy state: %v", err)
+	}
+
+	if err := d.EnsureCanonicalDeploymentGate(i.Key, i.Type, i.Status); err != nil {
+		t.Fatalf("ensure gate compatibility: %v", err)
+	}
+
+	events, err := d.ListDeploymentGateEvents(gate.ID)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("event count after backfill = %d, want 1", len(events))
+	}
+	if events[0].Reason != "legacy_backfill" {
+		t.Fatalf("event reason = %q, want legacy_backfill", events[0].Reason)
+	}
+}
+
+func TestGetIssueIncludesCurrentGateFields(t *testing.T) {
+	d := testDB(t)
+	i := makeIssue("SO-703")
+	i.Type = models.TypeDeploy
+	if err := d.CreateIssue(i); err != nil {
+		t.Fatalf("create deployment issue: %v", err)
+	}
+
+	if err := d.AppendDeploymentGateStatus(i.Key, i.Type, models.StatusBlocked, "awaiting QA signoff", "recheck"); err != nil {
+		t.Fatalf("append gate status: %v", err)
+	}
+
+	got, err := d.GetIssue(i.Key)
+	if err != nil {
+		t.Fatalf("get issue: %v", err)
+	}
+	if got.GateStatus != "blocked" {
+		t.Fatalf("gate_status = %q, want blocked", got.GateStatus)
+	}
+	if got.UnblockCondition != "awaiting QA signoff" {
+		t.Fatalf("unblock_condition = %q, want awaiting QA signoff", got.UnblockCondition)
+	}
+}
+
 func TestNextIssueKey(t *testing.T) {
 	d := testDB(t)
 

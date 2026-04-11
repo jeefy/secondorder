@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -1606,6 +1607,50 @@ func TestCheckoutIssue_CEOCanCheckoutAssignedToOther(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestGetIssue_ExposesDeploymentGateFields(t *testing.T) {
+	d := testDB(t)
+	hub := NewSSEHub()
+	defer hub.Close()
+	api := NewAPI(d, hub, nil, nil, &stubTelegram{}, nil)
+
+	owner, ownerKey := createAgentWithKey(t, d, "Release Owner", "release-owner", "backend")
+
+	issue := &models.Issue{Key: "SO-600", Title: "Release Train", Status: "todo", Type: models.TypeDeploy, AssigneeAgentID: &owner.ID}
+	d.CreateIssue(issue)
+
+	patchReq := httptest.NewRequest("PATCH", "/api/v1/issues/SO-600", strings.NewReader(`{"status":"blocked","unblock_condition":"wait for canary metrics"}`))
+	patchReq.Header.Set("Authorization", "Bearer "+ownerKey)
+	patchReq.Header.Set("Content-Type", "application/json")
+	patchReq.SetPathValue("key", "SO-600")
+	patchW := httptest.NewRecorder()
+	api.Auth(api.UpdateIssue)(patchW, patchReq)
+	if patchW.Code != http.StatusOK {
+		t.Fatalf("patch status = %d, want 200; body: %s", patchW.Code, patchW.Body.String())
+	}
+
+	getReq := httptest.NewRequest("GET", "/api/v1/issues/SO-600", nil)
+	getReq.Header.Set("Authorization", "Bearer "+ownerKey)
+	getReq.SetPathValue("key", "SO-600")
+	getW := httptest.NewRecorder()
+	api.Auth(api.GetIssue)(getW, getReq)
+	if getW.Code != http.StatusOK {
+		t.Fatalf("get status = %d, want 200; body: %s", getW.Code, getW.Body.String())
+	}
+
+	var payload struct {
+		Issue models.Issue `json:"issue"`
+	}
+	if err := json.Unmarshal(getW.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal get issue payload: %v", err)
+	}
+	if payload.Issue.GateStatus != "blocked" {
+		t.Fatalf("gate_status = %q, want blocked", payload.Issue.GateStatus)
+	}
+	if payload.Issue.UnblockCondition != "wait for canary metrics" {
+		t.Fatalf("unblock_condition = %q, want wait for canary metrics", payload.Issue.UnblockCondition)
 	}
 }
 
